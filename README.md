@@ -278,6 +278,7 @@ local function playSound(soundIdNum)
 				end
 			end
 		end)
+		end)
 	end
 end
 
@@ -3977,7 +3978,8 @@ Config_gatherSettingsData = function()
 		unlockMovementEnabled = UnlockMovementEnabled,
 		invisibilityEnabled = InvisibilityEnabled,
 		rageKill = RageKillEnabled,
-	rageKillMode = RageKillMode,
+	
+rageKillMode = RageKillMode,
 		slowKill = SlowKillEnabled,
 		autoEquip = AutoEquipEnabled,
 		antiLag = _G.__PHAntiLagEnabled == true
