@@ -243,8 +243,40 @@ local function playSound(soundIdNum)
 			sound.SoundId = "rbxassetid://" .. tostring(soundIdNum)
 			sound.Volume = 1
 			sound.Parent = SoundService
-			sound:Play()
-			game:GetService("Debris"):AddItem(sound, 3)
+
+			-- 3秒固定で削除せず、音声が最後まで再生されたら削除する
+		local endedConnection
+		endedConnection = sound.Ended:Connect(function()
+			if endedConnection then
+				endedConnection:Disconnect()
+				endedConnection = nil
+			end
+			pcall(function()
+				sound:Destroy()
+			end)
+		end)
+
+		sound:Play()
+
+		-- Ended が発火しない環境用の安全策。
+		-- TimeLength取得後、音声の長さ+1秒まで待ってから削除する。
+		task.spawn(function()
+			local deadline = os.clock() + 10
+			while sound.Parent and sound.TimeLength <= 0 and os.clock() < deadline do
+				task.wait(0.1)
+			end
+
+			if not sound.Parent then return end
+
+			local length = sound.TimeLength
+			if length > 0 then
+				task.wait(length + 1)
+				if sound.Parent then
+					pcall(function()
+						sound:Destroy()
+					end)
+				end
+			end
 		end)
 	end
 end
