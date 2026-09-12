@@ -21,7 +21,101 @@ local playerGui = LocalPlayer:WaitForChild("PlayerGui")
 if playerGui:FindFirstChild("PraveteHubGUI") then
 	playerGui.PraveteHubGUI:Destroy()
 end
+-- ==========================================================
+-- PrivateHub Teleport Auto Reload
+-- ==========================================================
+do
+    local RELOAD_URL =
+        "https://raw.githubusercontent.com/robloxbad-lol/333/refs/heads/main/README.md"
 
+    local qtp =
+        (type(queue_on_teleport) == "function" and queue_on_teleport)
+        or (syn and type(syn.queue_on_teleport) == "function" and syn.queue_on_teleport)
+        or (fluxus and type(fluxus.queue_on_teleport) == "function" and fluxus.queue_on_teleport)
+
+    if qtp and LocalPlayer then
+
+        local function getReloadCode()
+            return string.format([[
+task.wait(2)
+
+local URL = %q
+local source
+
+local req =
+    (type(request) == "function" and request)
+    or (syn and type(syn.request) == "function" and syn.request)
+    or (http and type(http.request) == "function" and http.request)
+    or (fluxus and type(fluxus.request) == "function" and fluxus.request)
+
+if req then
+    local ok, response = pcall(function()
+        return req({
+            Url = URL,
+            Method = "GET"
+        })
+    end)
+
+    if ok and response then
+        if type(response) == "table" then
+            source = response.Body
+        elseif type(response) == "string" then
+            source = response
+        end
+    end
+end
+
+if type(source) ~= "string" or #source < 100 then
+    local ok, result = pcall(function()
+        return game:HttpGet(URL)
+    end)
+
+    if ok and type(result) == "string" then
+        source = result
+    end
+end
+
+if type(source) == "string" and #source >= 100 then
+    if type(loadstring) == "function" then
+        local fn, err = loadstring(source)
+
+        if type(fn) == "function" then
+            task.spawn(function()
+                local runOK, runErr = pcall(fn)
+
+                if not runOK then
+                    warn("PrivateHub Auto Reload runtime error:", runErr)
+                end
+            end)
+        else
+            warn("PrivateHub Auto Reload compile error:", err)
+        end
+    else
+        warn("PrivateHub Auto Reload: loadstring unavailable")
+    end
+else
+    warn("PrivateHub Auto Reload: source取得失敗")
+end
+]], RELOAD_URL)
+        end
+
+        -- TPするたびに新しいキューを登録
+        LocalPlayer.OnTeleport:Connect(function(state)
+            if state == Enum.TeleportState.Started
+                or state == Enum.TeleportState.InProgress
+                or state == Enum.TeleportState.WaitingForServer then
+
+                pcall(function()
+                    qtp(getReloadCode())
+                end)
+            end
+        end)
+
+        print("PrivateHub TP Auto Reload: ON")
+    else
+        warn("PrivateHub Auto Reload: queue_on_teleport unavailable")
+    end
+end
 -- ==========================================
 -- 統合変数・状態管理
 -- ==========================================
@@ -31,6 +125,7 @@ local WallCheckEnabled = false
 local FOV_RADIUS = 300
 local FOV_Color = Color3.fromRGB(255, 255, 255)
 local FOV_Rainbow = false
+local FOV_Filled = false -- FOV円の内側を半透明で塗りつぶす
 
 -- ESP 関連変数
 local MVSD_ESP_Enabled = false
@@ -106,7 +201,8 @@ pcall(function()
 	fov_circle = Drawing.new("Circle")
 	fov_circle.Thickness = 2
 	fov_circle.Visible = false
-	fov_circle.Filled = false
+	fov_circle.Filled = FOV_Filled
+	fov_circle.Transparency = 0.20
 
 	target_text = Drawing.new("Text")
 	target_text.Size = 14
@@ -1382,7 +1478,7 @@ do
 end
 
 local silentAimSection = Instance.new("Frame")
-silentAimSection.Size = UDim2.new(0.92, 0, 0, 280)
+silentAimSection.Size = UDim2.new(0.92, 0, 0, 315)
 silentAimSection.Position = UDim2.new(0.04, 0, 0, 1435)
 silentAimSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 silentAimSection.BorderSizePixel = 0
@@ -1421,6 +1517,14 @@ ColorBtnSetters["FOVColor"] = fovColorBtn
 
 CheckboxSetters["FOVRainbow"] = createCheckboxToggle(silentAimSection, "Rainbow FOV", 232, function(enabled)
 	FOV_Rainbow = enabled
+end)
+
+CheckboxSetters["FOVFilled"] = createCheckboxToggle(silentAimSection, "Fill FOV", 268, function(enabled)
+	FOV_Filled = enabled
+	if fov_circle then
+		fov_circle.Filled = enabled
+		fov_circle.Transparency = enabled and 0.20 or 1
+	end
 end)
 
 --------------------------------------------------
@@ -2824,6 +2928,8 @@ RunService.RenderStepped:Connect(function()
 			fov_circle.Visible = true
 			fov_circle.Position = mouseLoc
 			fov_circle.Radius = FOV_RADIUS
+			fov_circle.Filled = FOV_Filled
+			fov_circle.Transparency = FOV_Filled and 0.20 or 1
 			
 			if FOV_Rainbow then
 				fov_circle.Color = Color3.fromHSV((os.clock() * 0.5) % 1, 1, 1)
@@ -3784,6 +3890,7 @@ Config_gatherSettingsData = function()
 		fovRadius = FOV_RADIUS,
 		fovColor = Config_colorToHex(fovColorBtn.BackgroundColor3),
 		fovRainbow = FOV_Rainbow,
+		fovFilled = FOV_Filled,
 		mvsdEspEnabled = MVSD_ESP_Enabled,
 		mvsdEspColor = Config_colorToHex(espColorBtn.BackgroundColor3),
 		serverDesyncEnabled = ServerDesync_Enabled,
@@ -3923,6 +4030,7 @@ Config_loadConfigByName = function(Config_cName)
 				if Config_data.fovRadius and SliderSetters["FOVRadius"] then SliderSetters["FOVRadius"](Config_data.fovRadius) end
 				if Config_data.fovColor then fovColorBtn.BackgroundColor3 = Config_hexToColor(Config_data.fovColor) end
 				if Config_data.fovRainbow ~= nil and CheckboxSetters["FOVRainbow"] then CheckboxSetters["FOVRainbow"](Config_data.fovRainbow, true) end
+				if Config_data.fovFilled ~= nil and CheckboxSetters["FOVFilled"] then CheckboxSetters["FOVFilled"](Config_data.fovFilled, true) end
 
 				-- Team ESP 読み込み
 				if Config_data.mvsdEspEnabled ~= nil and CheckboxSetters["MVSD_ESP"] then CheckboxSetters["MVSD_ESP"](Config_data.mvsdEspEnabled, true) end
