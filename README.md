@@ -21,101 +21,6 @@ local playerGui = LocalPlayer:WaitForChild("PlayerGui")
 if playerGui:FindFirstChild("PraveteHubGUI") then
 	playerGui.PraveteHubGUI:Destroy()
 end
--- ==========================================================
--- PrivateHub Teleport Auto Reload
--- ==========================================================
-do
-    local RELOAD_URL =
-        "https://raw.githubusercontent.com/robloxbad-lol/333/refs/heads/main/README.md"
-
-    local qtp =
-        (type(queue_on_teleport) == "function" and queue_on_teleport)
-        or (syn and type(syn.queue_on_teleport) == "function" and syn.queue_on_teleport)
-        or (fluxus and type(fluxus.queue_on_teleport) == "function" and fluxus.queue_on_teleport)
-
-    if qtp and LocalPlayer then
-
-        local function getReloadCode()
-            return string.format([[
-task.wait(2)
-
-local URL = %q
-local source
-
-local req =
-    (type(request) == "function" and request)
-    or (syn and type(syn.request) == "function" and syn.request)
-    or (http and type(http.request) == "function" and http.request)
-    or (fluxus and type(fluxus.request) == "function" and fluxus.request)
-
-if req then
-    local ok, response = pcall(function()
-        return req({
-            Url = URL,
-            Method = "GET"
-        })
-    end)
-
-    if ok and response then
-        if type(response) == "table" then
-            source = response.Body
-        elseif type(response) == "string" then
-            source = response
-        end
-    end
-end
-
-if type(source) ~= "string" or #source < 100 then
-    local ok, result = pcall(function()
-        return game:HttpGet(URL)
-    end)
-
-    if ok and type(result) == "string" then
-        source = result
-    end
-end
-
-if type(source) == "string" and #source >= 100 then
-    if type(loadstring) == "function" then
-        local fn, err = loadstring(source)
-
-        if type(fn) == "function" then
-            task.spawn(function()
-                local runOK, runErr = pcall(fn)
-
-                if not runOK then
-                    warn("PrivateHub Auto Reload runtime error:", runErr)
-                end
-            end)
-        else
-            warn("PrivateHub Auto Reload compile error:", err)
-        end
-    else
-        warn("PrivateHub Auto Reload: loadstring unavailable")
-    end
-else
-    warn("PrivateHub Auto Reload: source取得失敗")
-end
-]], RELOAD_URL)
-        end
-
-        -- TPするたびに新しいキューを登録
-        LocalPlayer.OnTeleport:Connect(function(state)
-            if state == Enum.TeleportState.Started
-                or state == Enum.TeleportState.InProgress
-                or state == Enum.TeleportState.WaitingForServer then
-
-                pcall(function()
-                    qtp(getReloadCode())
-                end)
-            end
-        end)
-
-        print("PrivateHub TP Auto Reload: ON")
-    else
-        warn("PrivateHub Auto Reload: queue_on_teleport unavailable")
-    end
-end
 -- ==========================================
 -- 統合変数・状態管理
 -- ==========================================
@@ -282,48 +187,147 @@ local function playSound(soundIdNum)
 	end
 end
 
--- 通知システム
+-- 通知システム（右上スライドイン + 自動スタック + 消えるプログレスバー）
 local notificationContainer = Instance.new("ScreenGui")
 notificationContainer.Name = "PrivateHubNotifications"
 notificationContainer.ResetOnSpawn = false
+notificationContainer.IgnoreGuiInset = true
+notificationContainer.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+notificationContainer.DisplayOrder = 10000
 notificationContainer.Parent = playerGui
 
 _G.__PHNotificationSoundBox = nil
 
-local function showNotification(text)
+local activeNotifications = {}
+local NOTIF_WIDTH = 300
+local NOTIF_HEIGHT = 58
+local NOTIF_GAP = 8
+local NOTIF_RIGHT = 18
+local NOTIF_TOP = 18
+local NOTIF_LIFETIME = 2.5
+
+local function repositionNotifications()
+	for i, item in ipairs(activeNotifications) do
+		if item and item.Parent then
+			local y = NOTIF_TOP + (i - 1) * (NOTIF_HEIGHT + NOTIF_GAP)
+			TweenService:Create(item, TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(1, -NOTIF_RIGHT, 0, y)}):Play()
+		end
+	end
+end
+
+local function removeNotification(notif)
+	for i = #activeNotifications, 1, -1 do
+		if activeNotifications[i] == notif then
+			table.remove(activeNotifications, i)
+			break
+		end
+	end
+	if notif and notif.Parent then notif:Destroy() end
+	repositionNotifications()
+end
+
+local function showNotification(titleOrText, message)
+	local title = "PRIVATE HUB"
+	local body = titleOrText
+	if message ~= nil then
+		title = tostring(titleOrText)
+		body = tostring(message)
+	else
+		body = tostring(titleOrText)
+	end
+
 	local notif = Instance.new("Frame")
-	notif.Size = UDim2.new(0, 240, 0, 42)
-	notif.Position = UDim2.new(1, 10, 0.85, 0)
-	notif.BackgroundColor3 = Color3.fromRGB(20, 20, 22)
+	notif.Name = "Notification"
+	notif.Size = UDim2.new(0, NOTIF_WIDTH, 0, NOTIF_HEIGHT)
+	notif.AnchorPoint = Vector2.new(1, 0)
+	notif.Position = UDim2.new(1, NOTIF_WIDTH + 25, 0, NOTIF_TOP)
+	notif.BackgroundColor3 = Color3.fromRGB(17, 17, 20)
+	notif.BackgroundTransparency = 0.02
 	notif.BorderSizePixel = 0
+	notif.ZIndex = 100
 	notif.Parent = notificationContainer
-	Instance.new("UICorner", notif).CornerRadius = UDim.new(0, 6)
-	addStroke(notif, Color3.fromRGB(60, 60, 65), 0, 1)
 
-	local lbl = Instance.new("TextLabel")
-	lbl.Size = UDim2.new(1, 0, 1, 0)
-	lbl.BackgroundTransparency = 1
-	lbl.Font = FONT_MAIN
-	lbl.Text = text
-	lbl.TextColor3 = Color3.fromRGB(230, 230, 235)
-	lbl.TextSize = 13
-	lbl.Parent = notif
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 8)
+	corner.Parent = notif
+	addStroke(notif, Color3.fromRGB(75, 75, 82), 0.15, 1)
 
-	TweenService:Create(notif, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(1, -250, 0.85, 0)}):Play()
+	local accent = Instance.new("Frame")
+	accent.Name = "Accent"
+	accent.Size = UDim2.new(0, 3, 1, -10)
+	accent.Position = UDim2.new(0, 6, 0, 5)
+	accent.BackgroundColor3 = Color3.fromRGB(210, 140, 180)
+	accent.BorderSizePixel = 0
+	accent.ZIndex = 101
+	accent.Parent = notif
+	Instance.new("UICorner", accent).CornerRadius = UDim.new(0, 2)
 
-	task.delay(1.5, function()
-		local tweenOut = TweenService:Create(notif, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {Position = UDim2.new(1, 10, 0.85, 0)})
-		tweenOut:Play()
-		tweenOut.Completed:Connect(function()
-			notif:Destroy()
-		end)
+	local titleLabel = Instance.new("TextLabel")
+	titleLabel.Name = "Title"
+	titleLabel.Size = UDim2.new(1, -32, 0, 20)
+	titleLabel.Position = UDim2.new(0, 20, 0, 7)
+	titleLabel.BackgroundTransparency = 1
+	titleLabel.Font = FONT_BOLD
+	titleLabel.Text = title
+	titleLabel.TextColor3 = Color3.fromRGB(245, 245, 248)
+	titleLabel.TextSize = 12
+	titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+	titleLabel.TextTruncate = Enum.TextTruncate.AtEnd
+	titleLabel.ZIndex = 101
+	titleLabel.Parent = notif
+
+	local bodyLabel = Instance.new("TextLabel")
+	bodyLabel.Name = "Message"
+	bodyLabel.Size = UDim2.new(1, -32, 0, 22)
+	bodyLabel.Position = UDim2.new(0, 20, 0, 27)
+	bodyLabel.BackgroundTransparency = 1
+	bodyLabel.Font = FONT_MAIN
+	bodyLabel.Text = body
+	bodyLabel.TextColor3 = Color3.fromRGB(185, 185, 192)
+	bodyLabel.TextSize = 11
+	bodyLabel.TextXAlignment = Enum.TextXAlignment.Left
+	bodyLabel.TextTruncate = Enum.TextTruncate.AtEnd
+	bodyLabel.ZIndex = 101
+	bodyLabel.Parent = notif
+
+	local progressBack = Instance.new("Frame")
+	progressBack.Name = "ProgressBack"
+	progressBack.Size = UDim2.new(1, -18, 0, 2)
+	progressBack.Position = UDim2.new(0, 9, 1, -5)
+	progressBack.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+	progressBack.BorderSizePixel = 0
+	progressBack.ZIndex = 101
+	progressBack.Parent = notif
+
+	local progress = Instance.new("Frame")
+	progress.Name = "Progress"
+	progress.Size = UDim2.new(1, 0, 1, 0)
+	progress.BackgroundColor3 = Color3.fromRGB(210, 140, 180)
+	progress.BorderSizePixel = 0
+	progress.ZIndex = 102
+	progress.Parent = progressBack
+
+	table.insert(activeNotifications, notif)
+	local index = #activeNotifications
+	local targetY = NOTIF_TOP + (index - 1) * (NOTIF_HEIGHT + NOTIF_GAP)
+
+	TweenService:Create(notif, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(1, -NOTIF_RIGHT, 0, targetY)}):Play()
+	TweenService:Create(progress, TweenInfo.new(NOTIF_LIFETIME, Enum.EasingStyle.Linear), {Size = UDim2.new(0, 0, 1, 0)}):Play()
+
+	task.delay(NOTIF_LIFETIME, function()
+		if not notif or not notif.Parent then return end
+		local out = TweenService:Create(notif, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {Position = UDim2.new(1, NOTIF_WIDTH + 25, 0, notif.Position.Y.Offset)})
+		out:Play()
+		out.Completed:Wait()
+		removeNotification(notif)
 	end)
-	
+
 	if _G.__PHNotificationSoundBox then
 		local soundIdNum = tonumber(_G.__PHNotificationSoundBox.Text)
 		playSound(soundIdNum)
 	end
 end
+
 
 -- ScreenGuiの作成
 local screenGui = Instance.new("ScreenGui")
@@ -2397,6 +2401,7 @@ CheckboxSetters["MinecraftTexture"] = createCheckboxToggle(mcTextureSection, "En
 end)
 
 -- Custom Crosshair & Watermark セクション
+do
 local crosshairSection = Instance.new("Frame")
 crosshairSection.Size = UDim2.new(0.92, 0, 0, 250)
 crosshairSection.Position = UDim2.new(0.04, 0, 0, 890)
@@ -2424,11 +2429,11 @@ CheckboxSetters["CustomCrosshairRainbow"] = createCheckboxToggle(crosshairSectio
 	CustomCrosshairRainbow = enabled
 end)
 
-local crosshairColorBtn = createColorPreviewRowInParent(crosshairSection, "Crosshair Color", customCrosshairColor, 115)
-ColorBtnSetters["CustomCrosshairColor"] = crosshairColorBtn
+_G.__PHCrosshairColorBtn = createColorPreviewRowInParent(crosshairSection, "Crosshair Color", customCrosshairColor, 115)
+ColorBtnSetters["CustomCrosshairColor"] = _G.__PHCrosshairColorBtn
 
-crosshairColorBtn:GetPropertyChangedSignal("BackgroundColor3"):Connect(function()
-	customCrosshairColor = crosshairColorBtn.BackgroundColor3
+_G.__PHCrosshairColorBtn:GetPropertyChangedSignal("BackgroundColor3"):Connect(function()
+	customCrosshairColor = _G.__PHCrosshairColorBtn.BackgroundColor3
 end)
 
 local textRow = Instance.new("Frame")
@@ -2448,24 +2453,24 @@ textLbl.TextSize = 12
 textLbl.TextXAlignment = Enum.TextXAlignment.Left
 textLbl.Parent = textRow
 
-local watermarkBox = Instance.new("TextBox")
-watermarkBox.Size = UDim2.new(1, 0, 0, 26)
-watermarkBox.Position = UDim2.new(0, 0, 0, 22)
-watermarkBox.BackgroundColor3 = Color3.fromRGB(22, 22, 25)
-watermarkBox.BorderSizePixel = 0
-watermarkBox.Font = FONT_MAIN
-watermarkBox.Text = "asahara.gg"
-watermarkBox.TextColor3 = Color3.fromRGB(220, 220, 225)
-watermarkBox.TextSize = 12
-watermarkBox.Parent = textRow
-Instance.new("UICorner", watermarkBox).CornerRadius = UDim.new(0, 4)
-addStroke(watermarkBox, Color3.fromRGB(50, 50, 55), 0, 1)
-addPadding(watermarkBox, 8)
+_G.__PHWatermarkBox = Instance.new("TextBox")
+_G.__PHWatermarkBox.Size = UDim2.new(1, 0, 0, 26)
+_G.__PHWatermarkBox.Position = UDim2.new(0, 0, 0, 22)
+_G.__PHWatermarkBox.BackgroundColor3 = Color3.fromRGB(22, 22, 25)
+_G.__PHWatermarkBox.BorderSizePixel = 0
+_G.__PHWatermarkBox.Font = FONT_MAIN
+_G.__PHWatermarkBox.Text = "asahara.gg"
+_G.__PHWatermarkBox.TextColor3 = Color3.fromRGB(220, 220, 225)
+_G.__PHWatermarkBox.TextSize = 12
+_G.__PHWatermarkBox.Parent = textRow
+Instance.new("UICorner", _G.__PHWatermarkBox).CornerRadius = UDim.new(0, 4)
+addStroke(_G.__PHWatermarkBox, Color3.fromRGB(50, 50, 55), 0, 1)
+addPadding(_G.__PHWatermarkBox, 8)
 
-watermarkBox:GetPropertyChangedSignal("Text"):Connect(function()
-	if watermarkBox.Text ~= "" then
-		CursorText.Text = watermarkBox.Text
-		watermarkTextValue = watermarkBox.Text
+_G.__PHWatermarkBox:GetPropertyChangedSignal("Text"):Connect(function()
+	if _G.__PHWatermarkBox.Text ~= "" then
+		CursorText.Text = _G.__PHWatermarkBox.Text
+		watermarkTextValue = _G.__PHWatermarkBox.Text
 	else
 		CursorText.Text = "asahara.gg"
 		watermarkTextValue = "asahara.gg"
@@ -2525,6 +2530,8 @@ RunService.RenderStepped:Connect(function()
 	end
 end)
 
+
+end
 
 -- ==========================================================
 -- Effect Control
@@ -3023,7 +3030,7 @@ end)
 --------------------------------------------------
 
 -- Knife Speed: Knife_Equip の Tool を監視して ThrowSpeed を適用
-local function applyKnifeSpeed()
+_G.__PHApplyKnifeSpeed = function()
     if not KnifeSettings.Enabled then return end
 
     local character = LocalPlayer.Character
@@ -3071,7 +3078,7 @@ end
 task.spawn(function()
     while true do
         task.wait(0.2)
-        applyKnifeSpeed()
+        _G.__PHApplyKnifeSpeed()
     end
 end)
 
@@ -3746,7 +3753,7 @@ while __Palette.i <= #__Palette.colors do
 				elseif target == worldChangerColorBtn then
 					_G.__PHWorldChangerColor = selectedColor
 					if WorldChangerEnabled then applyWorldChanger() end
-				elseif target == crosshairColorBtn then
+				elseif target == _G.__PHCrosshairColorBtn then
 					customCrosshairColor = selectedColor
 				elseif target == _G.__PHGunColorBtn then
 					_G.__PHGunColorState.Color = selectedColor
@@ -3767,7 +3774,7 @@ _G.__PHTextColorBtn.MouseButton1Click:Connect(function() openPalette(_G.__PHText
 if _G.__PHGunColorBtn then _G.__PHGunColorBtn.MouseButton1Click:Connect(function() openPalette(_G.__PHGunColorBtn) end) end
 fovColorBtn.MouseButton1Click:Connect(function() openPalette(fovColorBtn) end)
 worldChangerColorBtn.MouseButton1Click:Connect(function() openPalette(worldChangerColorBtn) end)
-crosshairColorBtn.MouseButton1Click:Connect(function() openPalette(crosshairColorBtn) end)
+_G.__PHCrosshairColorBtn.MouseButton1Click:Connect(function() openPalette(_G.__PHCrosshairColorBtn) end)
 espColorBtn.MouseButton1Click:Connect(function() openPalette(espColorBtn) end)
 serverDesyncColorBtn.MouseButton1Click:Connect(function() openPalette(serverDesyncColorBtn) end)
 hitboxColorBtn.MouseButton1Click:Connect(function() openPalette(hitboxColorBtn) end)
@@ -3954,7 +3961,7 @@ Config_gatherSettingsData = function()
 		customCrosshairEnabled = CustomCrosshairEnabled,
 		customCrosshairRainbow = CustomCrosshairRainbow,
 		customCrosshairColor = Config_colorToHex(customCrosshairColor),
-		watermarkText = watermarkBox.Text,
+		watermarkText = _G.__PHWatermarkBox.Text,
 		effectEnabled = _G.__PHEffectState and _G.__PHEffectState.Enabled == true,
 		effectRandom = _G.__PHEffectState and _G.__PHEffectState.Random == true,
 		effectImageEnabled = _G.__PHEffectState and _G.__PHEffectState.ImageEnabled == true,
@@ -4116,10 +4123,10 @@ Config_loadConfigByName = function(Config_cName)
 				if Config_data.customCrosshairRainbow ~= nil and CheckboxSetters["CustomCrosshairRainbow"] then CheckboxSetters["CustomCrosshairRainbow"](Config_data.customCrosshairRainbow, true) end
 				if Config_data.customCrosshairColor then 
 					customCrosshairColor = Config_hexToColor(Config_data.customCrosshairColor)
-					crosshairColorBtn.BackgroundColor3 = customCrosshairColor
+					_G.__PHCrosshairColorBtn.BackgroundColor3 = customCrosshairColor
 				end
 				if Config_data.watermarkText then
-					watermarkBox.Text = Config_data.watermarkText
+					_G.__PHWatermarkBox.Text = Config_data.watermarkText
 					CursorText.Text = Config_data.watermarkText
 				end
 				if Config_data.effectSelected and _G.__PHEffectState then
