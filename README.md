@@ -21,6 +21,101 @@ local playerGui = LocalPlayer:WaitForChild("PlayerGui")
 if playerGui:FindFirstChild("PraveteHubGUI") then
 	playerGui.PraveteHubGUI:Destroy()
 end
+-- ==========================================================
+-- PrivateHub Teleport Auto Reload
+-- ==========================================================
+do
+    local RELOAD_URL =
+        "https://raw.githubusercontent.com/robloxbad-lol/333/refs/heads/main/README.md"
+
+    local qtp =
+        (type(queue_on_teleport) == "function" and queue_on_teleport)
+        or (syn and type(syn.queue_on_teleport) == "function" and syn.queue_on_teleport)
+        or (fluxus and type(fluxus.queue_on_teleport) == "function" and fluxus.queue_on_teleport)
+
+    if qtp and LocalPlayer then
+
+        local function getReloadCode()
+            return string.format([[
+task.wait(2)
+
+local URL = %q
+local source
+
+local req =
+    (type(request) == "function" and request)
+    or (syn and type(syn.request) == "function" and syn.request)
+    or (http and type(http.request) == "function" and http.request)
+    or (fluxus and type(fluxus.request) == "function" and fluxus.request)
+
+if req then
+    local ok, response = pcall(function()
+        return req({
+            Url = URL,
+            Method = "GET"
+        })
+    end)
+
+    if ok and response then
+        if type(response) == "table" then
+            source = response.Body
+        elseif type(response) == "string" then
+            source = response
+        end
+    end
+end
+
+if type(source) ~= "string" or #source < 100 then
+    local ok, result = pcall(function()
+        return game:HttpGet(URL)
+    end)
+
+    if ok and type(result) == "string" then
+        source = result
+    end
+end
+
+if type(source) == "string" and #source >= 100 then
+    if type(loadstring) == "function" then
+        local fn, err = loadstring(source)
+
+        if type(fn) == "function" then
+            task.spawn(function()
+                local runOK, runErr = pcall(fn)
+
+                if not runOK then
+                    warn("PrivateHub Auto Reload runtime error:", runErr)
+                end
+            end)
+        else
+            warn("PrivateHub Auto Reload compile error:", err)
+        end
+    else
+        warn("PrivateHub Auto Reload: loadstring unavailable")
+    end
+else
+    warn("PrivateHub Auto Reload: source取得失敗")
+end
+]], RELOAD_URL)
+        end
+
+        -- TPするたびに新しいキューを登録
+        LocalPlayer.OnTeleport:Connect(function(state)
+            if state == Enum.TeleportState.Started
+                or state == Enum.TeleportState.InProgress
+                or state == Enum.TeleportState.WaitingForServer then
+
+                pcall(function()
+                    qtp(getReloadCode())
+                end)
+            end
+        end)
+
+        print("PrivateHub TP Auto Reload: ON")
+    else
+        warn("PrivateHub Auto Reload: queue_on_teleport unavailable")
+    end
+end
 -- ==========================================
 -- 統合変数・状態管理
 -- ==========================================
@@ -31,6 +126,7 @@ local FOV_RADIUS = 300
 local FOV_Color = Color3.fromRGB(255, 255, 255)
 local FOV_Rainbow = false
 local FOV_Filled = false -- FOV円の内側を半透明で塗りつぶす
+_G.__PrivateHubAutoShotState = _G.__PrivateHubAutoShotState or {Enabled = false, Cooldown = 0.5, LastShot = 0}
 
 -- ESP 関連変数
 local MVSD_ESP_Enabled = false
@@ -1232,7 +1328,7 @@ local mainScroll = Instance.new("ScrollingFrame")
 mainScroll.Size = UDim2.new(1, 0, 1, 0)
 mainScroll.BackgroundTransparency = 1
 mainScroll.BorderSizePixel = 0
-mainScroll.CanvasSize = UDim2.new(0, 0, 0, 1735)
+mainScroll.CanvasSize = UDim2.new(0, 0, 0, 1870)
 mainScroll.ScrollBarThickness = 4
 mainScroll.ScrollingDirection = Enum.ScrollingDirection.Y
 mainScroll.ScrollingEnabled = true
@@ -1515,7 +1611,7 @@ do
 end
 
 local silentAimSection = Instance.new("Frame")
-silentAimSection.Size = UDim2.new(0.92, 0, 0, 315)
+silentAimSection.Size = UDim2.new(0.92, 0, 0, 400)
 silentAimSection.Position = UDim2.new(0.04, 0, 0, 1435)
 silentAimSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 silentAimSection.BorderSizePixel = 0
@@ -1562,6 +1658,17 @@ CheckboxSetters["FOVFilled"] = createCheckboxToggle(silentAimSection, "Fill FOV"
 		fov_circle.Filled = enabled
 		fov_circle.Transparency = enabled and 0.20 or 1
 	end
+end)
+
+CheckboxSetters["AutoShot"] = createCheckboxToggle(silentAimSection, "Auto Shot", 304, function(enabled)
+    _G.__PrivateHubAutoShotState.Enabled = enabled
+    if not enabled then
+        _G.__PrivateHubAutoShotState.LastShot = 0
+    end
+end)
+
+SliderSetters["AutoShotCooldown"] = createSliderRow(silentAimSection, "Auto Shot Cooldown", 0.05, 5, _G.__PrivateHubAutoShotState.Cooldown, 340, function(val)
+    _G.__PrivateHubAutoShotState.Cooldown = val
 end)
 
 --------------------------------------------------
@@ -2959,7 +3066,90 @@ local function getClosestToMouse()
 	return target
 end
 
-local globalTextColor = Color3.fromRGB(255, 255, 255)
+-- Auto Shot専用: 壁越しのターゲットは常に無視する
+local function isAutoShotVisible(targetPart)
+    local camera = workspace.CurrentCamera
+    if not camera or not targetPart or not targetPart.Parent then return false end
+
+    local origin = camera.CFrame.Position
+    local direction = targetPart.Position - origin
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, camera}
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+
+    local result = workspace:Raycast(origin, direction, raycastParams)
+    return result == nil or result.Instance:IsDescendantOf(targetPart.Parent)
+end
+
+local function getAutoShotTarget()
+    local target, closestDist = nil, FOV_RADIUS
+    local mousePos = UserInputService:GetMouseLocation()
+    local myTeamName = GetPlayerTeam(LocalPlayer):lower()
+
+    -- ESPと完全に同じ Team1 / Team2 + Workspace 判定
+    if myTeamName ~= "team1" and myTeamName ~= "team2" then
+        return nil
+    end
+
+    for _, v in ipairs(Players:GetPlayers()) do
+        if v ~= LocalPlayer and v.Character then
+            local targetTeamName = GetPlayerTeam(v):lower()
+            local isEnemy = false
+
+            if (targetTeamName == "team1" or targetTeamName == "team2")
+                and myTeamName ~= targetTeamName then
+                if IsInSameMatchWorkspace(v) then
+                    isEnemy = true
+                end
+            end
+
+            if isEnemy then
+                local hum = v.Character:FindFirstChildOfClass("Humanoid")
+                local root = v.Character:FindFirstChild("HumanoidRootPart")
+                if hum and hum.Health > 0 and root then
+                    local screenPos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(root.Position)
+                    if onScreen and isAutoShotVisible(root) then
+                        local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                        if dist <= closestDist then
+                            target = v
+                            closestDist = dist
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return target
+end
+
+-- FOV内の見えているターゲットをクールダウン付きで自動発射
+task.spawn(function()
+    while true do
+        local state = _G.__PrivateHubAutoShotState
+        if state and state.Enabled and SilentAimEnabled then
+            local now = os.clock()
+            local cooldown = math.max(0.05, tonumber(state.Cooldown) or 0.5)
+            if now - (state.LastShot or 0) >= cooldown then
+                local target = getAutoShotTarget()
+                local root = target and target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+                local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+                local remote = remotes and remotes:FindFirstChild("ShootGun")
+                if root and remote and remote:IsA("RemoteEvent") then
+                    local pos = root.Position
+                    local fired = pcall(function()
+                        remote:FireServer(pos, pos, root, pos)
+                    end)
+                    if fired then
+                        state.LastShot = now
+                    end
+                end
+            end
+        end
+        RunService.Heartbeat:Wait()
+    end
+end)
+
+_G.__PrivateHubTextColor = _G.__PrivateHubTextColor or Color3.fromRGB(255, 255, 255)
 
 RunService.RenderStepped:Connect(function()
 	if fov_circle and target_text then
@@ -2982,7 +3172,7 @@ RunService.RenderStepped:Connect(function()
 				target_text.Visible = true
 				target_text.Text = "Target: " .. target.Name
 				target_text.Position = mouseLoc + Vector2.new(0, FOV_RADIUS + 10)
-				target_text.Color = globalTextColor
+				target_text.Color = _G.__PrivateHubTextColor
 			else
 				target_text.Visible = false
 			end
@@ -2993,8 +3183,8 @@ RunService.RenderStepped:Connect(function()
 	end
 end)
 
-local Hooked = nil
-Hooked = hookmetamethod(game, "__namecall", function(self, ...)
+_G.__PHHooked = nil
+_G.__PHHooked = hookmetamethod(game, "__namecall", function(self, ...)
 	local args = {...}
 	local method = getnamecallmethod()
 
@@ -3006,7 +3196,7 @@ Hooked = hookmetamethod(game, "__namecall", function(self, ...)
 			return self.FireServer(self, pos, pos, root, pos)
 		end
 	end
-	return Hooked(self, ...)
+	return _G.__PHHooked(self, ...)
 end)
 
 UserInputService.InputBegan:Connect(function(input, processed)
@@ -3675,7 +3865,7 @@ applyThemeColors = function()
 	outerGlow.BackgroundColor3 = accentCol
 	fixBar.BackgroundColor3 = accentCol
 	glitchLabel.TextColor3 = accentCol
-	globalTextColor = textCol
+	_G.__PrivateHubTextColor = textCol
 
 	outerBorder.BackgroundColor3 = Color3.new(
 		math.clamp(accentCol.R * 0.4, 0, 1),
@@ -3931,6 +4121,8 @@ Config_gatherSettingsData = function()
 		fovColor = Config_colorToHex(fovColorBtn.BackgroundColor3),
 		fovRainbow = FOV_Rainbow,
 		fovFilled = FOV_Filled,
+		autoShot = _G.__PrivateHubAutoShotState.Enabled == true,
+		autoShotCooldown = _G.__PrivateHubAutoShotState.Cooldown or 0.5,
 		mvsdEspEnabled = MVSD_ESP_Enabled,
 		mvsdEspColor = Config_colorToHex(espColorBtn.BackgroundColor3),
 		serverDesyncEnabled = ServerDesync_Enabled,
@@ -4072,6 +4264,8 @@ Config_loadConfigByName = function(Config_cName)
 				if Config_data.fovColor then fovColorBtn.BackgroundColor3 = Config_hexToColor(Config_data.fovColor) end
 				if Config_data.fovRainbow ~= nil and CheckboxSetters["FOVRainbow"] then CheckboxSetters["FOVRainbow"](Config_data.fovRainbow, true) end
 				if Config_data.fovFilled ~= nil and CheckboxSetters["FOVFilled"] then CheckboxSetters["FOVFilled"](Config_data.fovFilled, true) end
+				if Config_data.autoShotCooldown and SliderSetters["AutoShotCooldown"] then SliderSetters["AutoShotCooldown"](Config_data.autoShotCooldown) end
+				if Config_data.autoShot ~= nil and CheckboxSetters["AutoShot"] then CheckboxSetters["AutoShot"](Config_data.autoShot, true) end
 
 				-- Team ESP 読み込み
 				if Config_data.mvsdEspEnabled ~= nil and CheckboxSetters["MVSD_ESP"] then CheckboxSetters["MVSD_ESP"](Config_data.mvsdEspEnabled, true) end
@@ -4504,12 +4698,27 @@ task.spawn(function()
 			local hitRemote = _G.__PHRageGetKnifeRemotes()
 			local myPos = (myChar and myChar.PrimaryPart) and myChar.PrimaryPart.Position or Vector3.new(0, 0, 0)
 			if hitRemote then
-				for _, p in ipairs(Players:GetPlayers()) do
-					if p ~= LocalPlayer and p.Character then
-						local head = p.Character:FindFirstChild("Head") or p.Character.PrimaryPart
-						local enemyHum = p.Character:FindFirstChildOfClass("Humanoid")
-						if head and enemyHum and enemyHum.Health > 0 and (head.Position - myPos).Magnitude <= 1000 then
-							pcall(function() hitRemote:FireServer(head, head.Position) end)
+				local myTeamName = GetPlayerTeam(LocalPlayer):lower()
+				if myTeamName == "team1" or myTeamName == "team2" then
+					for _, p in ipairs(Players:GetPlayers()) do
+						if p ~= LocalPlayer and p.Character then
+							local targetTeamName = GetPlayerTeam(p):lower()
+							local isEnemy = false
+
+							-- ESPと同じ判定: Team1/Team2の敵チームかつ同じMatch Workspace内だけ対象
+							if (targetTeamName == "team1" or targetTeamName == "team2") and myTeamName ~= targetTeamName then
+								if IsInSameMatchWorkspace(p) then
+									isEnemy = true
+								end
+							end
+
+							if isEnemy then
+								local head = p.Character:FindFirstChild("Head") or p.Character.PrimaryPart
+								local enemyHum = p.Character:FindFirstChildOfClass("Humanoid")
+								if head and enemyHum and enemyHum.Health > 0 and (head.Position - myPos).Magnitude <= 1000 then
+									pcall(function() hitRemote:FireServer(head, head.Position) end)
+								end
+							end
 						end
 					end
 				end
@@ -4617,7 +4826,7 @@ combatSection.Parent = mainScroll
 Instance.new("UICorner", combatSection).CornerRadius = UDim.new(0, 6)
 addStroke(combatSection, Color3.fromRGB(40, 40, 45), 0, 1)
 
-mainScroll.CanvasSize = UDim2.new(0, 0, 0, 1735)
+mainScroll.CanvasSize = UDim2.new(0, 0, 0, 1870)
 
 local combatTitle = Instance.new("TextLabel")
 combatTitle.Name = "DynamicText"
