@@ -21,6 +21,101 @@ local playerGui = LocalPlayer:WaitForChild("PlayerGui")
 if playerGui:FindFirstChild("PraveteHubGUI") then
 	playerGui.PraveteHubGUI:Destroy()
 end
+-- ==========================================================
+-- PrivateHub Teleport Auto Reload
+-- ==========================================================
+do
+    local RELOAD_URL =
+        "https://raw.githubusercontent.com/robloxbad-lol/333/refs/heads/main/README.md"
+
+    local qtp =
+        (type(queue_on_teleport) == "function" and queue_on_teleport)
+        or (syn and type(syn.queue_on_teleport) == "function" and syn.queue_on_teleport)
+        or (fluxus and type(fluxus.queue_on_teleport) == "function" and fluxus.queue_on_teleport)
+
+    if qtp and LocalPlayer then
+
+        local function getReloadCode()
+            return string.format([[
+task.wait(2)
+
+local URL = %q
+local source
+
+local req =
+    (type(request) == "function" and request)
+    or (syn and type(syn.request) == "function" and syn.request)
+    or (http and type(http.request) == "function" and http.request)
+    or (fluxus and type(fluxus.request) == "function" and fluxus.request)
+
+if req then
+    local ok, response = pcall(function()
+        return req({
+            Url = URL,
+            Method = "GET"
+        })
+    end)
+
+    if ok and response then
+        if type(response) == "table" then
+            source = response.Body
+        elseif type(response) == "string" then
+            source = response
+        end
+    end
+end
+
+if type(source) ~= "string" or #source < 100 then
+    local ok, result = pcall(function()
+        return game:HttpGet(URL)
+    end)
+
+    if ok and type(result) == "string" then
+        source = result
+    end
+end
+
+if type(source) == "string" and #source >= 100 then
+    if type(loadstring) == "function" then
+        local fn, err = loadstring(source)
+
+        if type(fn) == "function" then
+            task.spawn(function()
+                local runOK, runErr = pcall(fn)
+
+                if not runOK then
+                    warn("PrivateHub Auto Reload runtime error:", runErr)
+                end
+            end)
+        else
+            warn("PrivateHub Auto Reload compile error:", err)
+        end
+    else
+        warn("PrivateHub Auto Reload: loadstring unavailable")
+    end
+else
+    warn("PrivateHub Auto Reload: source取得失敗")
+end
+]], RELOAD_URL)
+        end
+
+        -- TPするたびに新しいキューを登録
+        LocalPlayer.OnTeleport:Connect(function(state)
+            if state == Enum.TeleportState.Started
+                or state == Enum.TeleportState.InProgress
+                or state == Enum.TeleportState.WaitingForServer then
+
+                pcall(function()
+                    qtp(getReloadCode())
+                end)
+            end
+        end)
+
+        print("PrivateHub TP Auto Reload: ON")
+    else
+        warn("PrivateHub Auto Reload: queue_on_teleport unavailable")
+    end
+end
 -- ==========================================
 -- 統合変数・状態管理
 -- ==========================================
@@ -718,6 +813,18 @@ _G.__PrivateHubMatchState = _G.__PrivateHubMatchState or {
     Mode = "1v1"
 }
 
+_G.__PrivateHubAutoVoteMapState = _G.__PrivateHubAutoVoteMapState or {
+    Enabled = false,
+    LastVote = 0,
+    LastButton = nil,
+    Rank1 = "Barn",
+    Rank2 = "None",
+    Rank3 = "None"
+}
+_G.__PrivateHubAutoVoteMapState.Rank1 = _G.__PrivateHubAutoVoteMapState.Rank1 or "Barn"
+_G.__PrivateHubAutoVoteMapState.Rank2 = _G.__PrivateHubAutoVoteMapState.Rank2 or "None"
+_G.__PrivateHubAutoVoteMapState.Rank3 = _G.__PrivateHubAutoVoteMapState.Rank3 or "None"
+
 -- ==========================================
 -- Abilities / Knife / Cooldown / Dash
 -- ==========================================
@@ -1233,7 +1340,7 @@ local mainScroll = Instance.new("ScrollingFrame")
 mainScroll.Size = UDim2.new(1, 0, 1, 0)
 mainScroll.BackgroundTransparency = 1
 mainScroll.BorderSizePixel = 0
-mainScroll.CanvasSize = UDim2.new(0, 0, 0, 1870)
+mainScroll.CanvasSize = UDim2.new(0, 0, 0, 2150)
 mainScroll.ScrollBarThickness = 4
 mainScroll.ScrollingDirection = Enum.ScrollingDirection.Y
 mainScroll.ScrollingEnabled = true
@@ -1310,7 +1417,7 @@ end)
 -- ==========================================
 local matchSection = Instance.new("Frame")
 matchSection.Name = "MatchSection"
-matchSection.Size = UDim2.new(0.92, 0, 0, 190)
+matchSection.Size = UDim2.new(0.92, 0, 0, 385)
 matchSection.Position = UDim2.new(0.04, 0, 0, 305)
 matchSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 matchSection.BorderSizePixel = 0
@@ -1396,6 +1503,135 @@ end)
 CheckboxSetters["AutoMatch"] = createCheckboxToggle(matchSection, "Auto Re-Queue", 145, function(enabled)
     _G.__PrivateHubMatchState.Enabled = enabled
 end)
+
+-- ==========================================================
+-- Auto Vote Map (Priority 1 / 2 / 3)
+-- Provided Map.StartMapVoting / Map.VoteMap implementation
+-- ==========================================================
+do
+    local mapOptions = {"None", "Barn", "Prototype", "Ridge", "Lodge", "Aerial"}
+    local voteUI = _G.__PHAutoVoteMapUI or {}
+    _G.__PHAutoVoteMapUI = voteUI
+    voteUI.ActiveList = nil
+
+    local function closeList(list)
+        if list then
+            list.Visible = false
+            list.Size = UDim2.new(1, -20, 0, 0)
+        end
+        if voteUI.ActiveList == list then voteUI.ActiveList = nil end
+    end
+
+    local function makePriority(rank, y, defaultValue)
+        local btn = Instance.new("TextButton")
+        btn.Name = "AutoVoteMapPriority" .. tostring(rank)
+        btn.Size = UDim2.new(1, -20, 0, 30)
+        btn.Position = UDim2.new(0, 10, 0, y)
+        btn.BackgroundColor3 = Color3.fromRGB(22, 22, 25)
+        btn.BorderSizePixel = 0
+        btn.Font = FONT_MAIN
+        btn.Text = ""
+        btn.TextColor3 = Color3.fromRGB(205, 205, 210)
+        btn.TextSize = 12
+        btn.TextXAlignment = Enum.TextXAlignment.Left
+        btn.Parent = matchSection
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+        addStroke(btn, Color3.fromRGB(50, 50, 55), 0, 1)
+        addPadding(btn, 10)
+
+        local list = Instance.new("ScrollingFrame")
+        list.Name = "AutoVoteMapPriority" .. tostring(rank) .. "List"
+        list.Size = UDim2.new(1, -20, 0, 0)
+        list.Position = UDim2.new(0, 10, 0, y + 32)
+        list.BackgroundColor3 = Color3.fromRGB(20, 20, 23)
+        list.BorderSizePixel = 0
+        list.ScrollBarThickness = 2
+        list.CanvasSize = UDim2.new(0, 0, 0, #mapOptions * 27)
+        list.Visible = false
+        list.ZIndex = 50
+        list.Parent = matchSection
+        Instance.new("UICorner", list).CornerRadius = UDim.new(0, 4)
+        addStroke(list, Color3.fromRGB(50, 50, 55), 0, 1)
+
+        local function setValue(value)
+            _G.__PrivateHubAutoVoteMapState["Rank" .. tostring(rank)] = value
+            btn.Text = "Priority " .. tostring(rank) .. ": " .. value
+            closeList(list)
+        end
+        setValue(defaultValue)
+
+        for i, option in ipairs(mapOptions) do
+            local opt = Instance.new("TextButton")
+            opt.Size = UDim2.new(1, 0, 0, 27)
+            opt.Position = UDim2.new(0, 0, 0, (i - 1) * 27)
+            opt.BackgroundColor3 = Color3.fromRGB(25, 25, 28)
+            opt.BorderSizePixel = 0
+            opt.Font = FONT_MAIN
+            opt.Text = option
+            opt.TextColor3 = Color3.fromRGB(215, 215, 220)
+            opt.TextSize = 12
+            opt.TextXAlignment = Enum.TextXAlignment.Left
+            opt.ZIndex = 51
+            opt.Parent = list
+            addPadding(opt, 10)
+            opt.MouseButton1Click:Connect(function() setValue(option) end)
+        end
+
+        btn.MouseButton1Click:Connect(function()
+            if list.Visible then
+                closeList(list)
+            else
+                if voteUI.ActiveList and voteUI.ActiveList ~= list then closeList(voteUI.ActiveList) end
+                list.Visible = true
+                list.Size = UDim2.new(1, -20, 0, math.min(#mapOptions * 27, 135))
+                voteUI.ActiveList = list
+            end
+        end)
+        voteUI["Rank" .. tostring(rank) .. "Button"] = btn
+        voteUI["Rank" .. tostring(rank) .. "Set"] = setValue
+        return btn
+    end
+
+    CheckboxSetters["AutoVoteMap"] = createCheckboxToggle(matchSection, "Auto Vote Map", 181, function(enabled)
+        _G.__PrivateHubAutoVoteMapState.Enabled = enabled == true
+        if enabled then showNotification("Auto Vote Map", "Enabled") end
+    end)
+
+    makePriority(1, 215, _G.__PrivateHubAutoVoteMapState.Rank1 or "Barn")
+    makePriority(2, 251, _G.__PrivateHubAutoVoteMapState.Rank2 or "None")
+    makePriority(3, 287, _G.__PrivateHubAutoVoteMapState.Rank3 or "None")
+
+    -- 実際のマップ投票Remoteを使用
+    task.spawn(function()
+        local mapFolder = ReplicatedStorage:FindFirstChild("Map") or ReplicatedStorage:WaitForChild("Map", 15)
+        local startVoting = mapFolder and (mapFolder:FindFirstChild("StartMapVoting") or mapFolder:WaitForChild("StartMapVoting", 10))
+        local voteMap = mapFolder and (mapFolder:FindFirstChild("VoteMap") or mapFolder:WaitForChild("VoteMap", 10))
+        if not startVoting or not voteMap or not startVoting:IsA("RemoteEvent") then return end
+        startVoting.OnClientEvent:Connect(function(mapList)
+            if not _G.__PrivateHubAutoVoteMapState.Enabled or type(mapList) ~= "table" then return end
+            local priorities = {
+                _G.__PrivateHubAutoVoteMapState.Rank1 or "Barn",
+                _G.__PrivateHubAutoVoteMapState.Rank2 or "None",
+                _G.__PrivateHubAutoVoteMapState.Rank3 or "None"
+            }
+            for _, targetMap in ipairs(priorities) do
+                if targetMap ~= "None" then
+                    for _, availableMap in pairs(mapList) do
+                        if tostring(availableMap) == targetMap then
+                            local ok = pcall(function() voteMap:FireServer(targetMap) end)
+                            if ok then
+                                _G.__PrivateHubAutoVoteMapState.LastVote = os.clock()
+                                _G.__PrivateHubAutoVoteMapState.LastButton = targetMap
+                                showNotification("Auto Vote Map", "Voted: " .. targetMap)
+                            end
+                            return
+                        end
+                    end
+                end
+            end
+        end)
+    end)
+end
 
 -- Auto Matchmaking: 試合終了時に選択したモードで再キュー
 -- 修正版: pcall の複数戻り値を正しく受け取り、RemoteEvent/RemoteFunction の
@@ -1517,7 +1753,7 @@ end
 
 local silentAimSection = Instance.new("Frame")
 silentAimSection.Size = UDim2.new(0.92, 0, 0, 400)
-silentAimSection.Position = UDim2.new(0.04, 0, 0, 1435)
+silentAimSection.Position = UDim2.new(0.04, 0, 0, 1385)
 silentAimSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 silentAimSection.BorderSizePixel = 0
 silentAimSection.Parent = mainScroll
@@ -3282,7 +3518,7 @@ _G.__PHLagLocalPlayer = _G.__PHLagPlayers.LocalPlayer
 
 _G.__PHLagSection = Instance.new("Frame")
 _G.__PHLagSection.Size = UDim2.new(0.92, 0, 0, 185)
-_G.__PHLagSection.Position = UDim2.new(0.04, 0, 0, 515)
+_G.__PHLagSection.Position = UDim2.new(0.04, 0, 0, 705)
 _G.__PHLagSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 _G.__PHLagSection.BorderSizePixel = 0
 _G.__PHLagSection.Parent = mainScroll
@@ -3441,7 +3677,7 @@ end)
 -- ==========================================
 _G.__PHAbilitiesSection = Instance.new("Frame")
 _G.__PHAbilitiesSection.Size = UDim2.new(0.92, 0, 0, 470)
-_G.__PHAbilitiesSection.Position = UDim2.new(0.04, 0, 0, 720)
+_G.__PHAbilitiesSection.Position = UDim2.new(0.04, 0, 0, 905)
 _G.__PHAbilitiesSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 _G.__PHAbilitiesSection.BorderSizePixel = 0
 _G.__PHAbilitiesSection.Parent = mainScroll
@@ -3852,6 +4088,11 @@ while __Palette.i <= #__Palette.colors do
 					customCrosshairColor = selectedColor
 				elseif target == _G.__PHGunColorBtn then
 					_G.__PHGunColorState.Color = selectedColor
+                elseif target == _G.__PHRageTargetMarkerColorBtn then
+                    _G.__PrivateHubRageTargetState.TargetMarkerColor = selectedColor
+                elseif target == _G.__PHRageTextColorBtn then
+                    _G.__PrivateHubRageTargetState.TextColor = selectedColor
+                    if centerKillLabel then centerKillLabel.TextColor3 = selectedColor end
 				end
 
 				applyThemeColors()
@@ -4003,6 +4244,15 @@ RageKillMode = "GUN"
 SlowKillEnabled = false
 AutoEquipEnabled = false
 
+-- Rage Kill target-lock state (kept in _G to avoid local-register pressure).
+_G.__PrivateHubRageTargetState = _G.__PrivateHubRageTargetState or {
+    Enabled = false,
+    TargetName = "",
+    TargetMarkerColor = Color3.fromRGB(255, 70, 70),
+    TextColor = Color3.fromRGB(255, 50, 50),
+    Highlight = nil
+}
+
 Config_gatherSettingsData = function()
 	Config_data = {
 		mainColor = Config_colorToHex(_G.__PHMainColorBtn.BackgroundColor3),
@@ -4019,6 +4269,10 @@ Config_gatherSettingsData = function()
 		spinSpeed = _G.__PrivateHubSpinState.Speed,
 		matchAutoQueue = _G.__PrivateHubMatchState.Enabled,
 		matchMode = _G.__PrivateHubMatchState.Mode,
+		autoVoteMap = _G.__PrivateHubAutoVoteMapState.Enabled == true,
+		autoVoteMapRank1 = _G.__PrivateHubAutoVoteMapState.Rank1 or "Barn",
+		autoVoteMapRank2 = _G.__PrivateHubAutoVoteMapState.Rank2 or "None",
+		autoVoteMapRank3 = _G.__PrivateHubAutoVoteMapState.Rank3 or "None",
 		silentAim = SilentAimEnabled,
 		aimbot = AimbotEnabled,
 		wallCheck = WallCheckEnabled,
@@ -4081,9 +4335,12 @@ Config_gatherSettingsData = function()
 		dashCooldown = DASH_COOLDOWN,
 		unlockMovementEnabled = UnlockMovementEnabled,
 		invisibilityEnabled = InvisibilityEnabled,
-		rageKill = RageKillEnabled,
-	
-rageKillMode = RageKillMode,
+        rageKill = RageKillEnabled,
+        rageKillMode = RageKillMode,
+        rageKillTargetEnabled = _G.__PrivateHubRageTargetState.Enabled == true,
+        rageKillTargetName = _G.__PrivateHubRageTargetState.TargetName or "",
+        rageKillTargetMarkerColor = Config_colorToHex(_G.__PrivateHubRageTargetState.TargetMarkerColor or Color3.fromRGB(255, 70, 70)),
+        rageKillTextColor = Config_colorToHex(_G.__PrivateHubRageTargetState.TextColor or Color3.fromRGB(255, 50, 50)),
 		slowKill = SlowKillEnabled,
 		autoEquip = AutoEquipEnabled,
 		antiLag = _G.__PHAntiLagEnabled == true
@@ -4160,6 +4417,12 @@ Config_loadConfigByName = function(Config_cName)
 				end
 				if Config_data.matchAutoQueue ~= nil and CheckboxSetters["AutoMatch"] then
 					CheckboxSetters["AutoMatch"](Config_data.matchAutoQueue, true)
+				end
+				if Config_data.autoVoteMapRank1 and _G.__PHAutoVoteMapUI and _G.__PHAutoVoteMapUI.Rank1Set then _G.__PHAutoVoteMapUI.Rank1Set(Config_data.autoVoteMapRank1) end
+				if Config_data.autoVoteMapRank2 and _G.__PHAutoVoteMapUI and _G.__PHAutoVoteMapUI.Rank2Set then _G.__PHAutoVoteMapUI.Rank2Set(Config_data.autoVoteMapRank2) end
+				if Config_data.autoVoteMapRank3 and _G.__PHAutoVoteMapUI and _G.__PHAutoVoteMapUI.Rank3Set then _G.__PHAutoVoteMapUI.Rank3Set(Config_data.autoVoteMapRank3) end
+				if Config_data.autoVoteMap ~= nil and CheckboxSetters["AutoVoteMap"] then
+					CheckboxSetters["AutoVoteMap"](Config_data.autoVoteMap, true)
 				end
 
 				if Config_data.silentAim ~= nil and CheckboxSetters["SilentAim"] then CheckboxSetters["SilentAim"](Config_data.silentAim, true) end
@@ -4301,7 +4564,20 @@ Config_loadConfigByName = function(Config_cName)
 						isRoundActive = (RageKillMode == "GUN")
 					end
 				end
-				if Config_data.slowKill ~= nil and CheckboxSetters["SlowKill"] then CheckboxSetters["SlowKill"](Config_data.slowKill, true) end
+                if Config_data.rageKillTargetEnabled ~= nil then
+                    _G.__PrivateHubRageTargetState.Enabled = Config_data.rageKillTargetEnabled == true
+                end
+                if Config_data.rageKillTargetName ~= nil then
+                    _G.__PrivateHubRageTargetState.TargetName = tostring(Config_data.rageKillTargetName or "")
+                end
+                if Config_data.rageKillTargetMarkerColor then
+                    _G.__PrivateHubRageTargetState.TargetMarkerColor = Config_hexToColor(Config_data.rageKillTargetMarkerColor)
+                end
+                if Config_data.rageKillTextColor then
+                    _G.__PrivateHubRageTargetState.TextColor = Config_hexToColor(Config_data.rageKillTextColor)
+                end
+
+                if Config_data.slowKill ~= nil and CheckboxSetters["SlowKill"] then CheckboxSetters["SlowKill"](Config_data.slowKill, true) end
 				if Config_data.autoEquip ~= nil and CheckboxSetters["AutoEquip"] then CheckboxSetters["AutoEquip"](Config_data.autoEquip, true) end
 				if Config_data.antiLag ~= nil and CheckboxSetters["AntiLag"] then CheckboxSetters["AntiLag"](Config_data.antiLag, true) end
 
@@ -4435,9 +4711,10 @@ centerKillLabel.Size = UDim2.new(1, 0, 1, 0)
 centerKillLabel.BackgroundTransparency = 1
 centerKillLabel.Font = Enum.Font.Arcade
 centerKillLabel.Text = "Rage Kill: Idle"
-centerKillLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
+centerKillLabel.TextColor3 = _G.__PrivateHubRageTargetState.TextColor or Color3.fromRGB(255, 50, 50)
 centerKillLabel.TextSize = 22
 centerKillLabel.Parent = centerKillFrame
+_G.__PHRageKillLabel = centerKillLabel
 
 local centerStroke = Instance.new("UIStroke")
 centerStroke.Thickness = 2
@@ -4498,76 +4775,90 @@ if OnRoundEnded then
 	end)
 end
 
--- [[ ループ1: Rage Kill メイン処理 ]]
+-- [[ ループ1: Rage Kill GUN メイン処理 ]]
+-- 旧ターゲット1人ずつ処理を廃止し、提示された Faster Max 方式に置換。
+-- Team1/Team2 + 同一Match Workspace の敵だけを対象に、
+-- Heartbeatごとに最大1500 studsまで ShootGun を送る。
 task.spawn(function()
-	while true do
-		task.wait(0.05)
-		if RageKillEnabled and RageKillMode == "GUN" and isRoundActive then
-			centerKillFrame.Visible = true
-			local myTeamName = GetPlayerTeam(LocalPlayer):lower()
-			
-			if myTeamName == "team1" or myTeamName == "team2" then
-				local enemyList = {}
-				for _, p in pairs(Players:GetPlayers()) do
-					if p ~= LocalPlayer then
-						local targetTeamName = GetPlayerTeam(p):lower()
-						local isEnemy = false
-						if targetTeamName == "team1" or targetTeamName == "team2" then
-							if myTeamName ~= targetTeamName then
-								if IsInSameMatchWorkspace(p) then
-									local char = p.Character
-									local hum = char and char:FindFirstChild("Humanoid")
-									if hum and hum.Health > 0 then
-										isEnemy = true
-									end
-								end
-							end
-						end
-						if isEnemy then
-							table.insert(enemyList, p)
-						end
-					end
-				end
+    while true do
+        RunService.Heartbeat:Wait()
 
-				if #enemyList > 0 then
-					if currentTargetIndex > #enemyList then
-						currentTargetIndex = 1
-					end
+        if not RageKillEnabled or RageKillMode ~= "GUN" then
+            if not RageKillEnabled or RageKillMode == "KNIFE" then
+                centerKillFrame.Visible = false
+            end
+            continue
+        end
 
-					local targetPlayer = enemyList[currentTargetIndex]
-					if targetPlayer and targetPlayer.Character then
-						local char = targetPlayer.Character
-						local root = char:FindFirstChild("HumanoidRootPart")
-						local hum = char:FindFirstChild("Humanoid")
+        centerKillFrame.Visible = true
+        centerKillLabel.TextColor3 = _G.__PrivateHubRageTargetState.TextColor or Color3.fromRGB(255, 50, 50)
 
-						if root and hum and hum.Health > 0 then
-							centerKillLabel.Text = "Rage Kill: killing " .. targetPlayer.Name
-							if ShootGunRemote then
-								pcall(function()
-									ShootGunRemote:FireServer(root.Position, root.Position, root, root.Position)
-								end)
-							end
-						else
-							currentTargetIndex = currentTargetIndex + 1
-						end
-					else
-						currentTargetIndex = currentTargetIndex + 1
-					end
-				else
-					centerKillLabel.Text = "Rage Kill: No Targets"
-				end
-			else
-				centerKillLabel.Text = "Rage Kill: Waiting Team..."
-			end
-		elseif RageKillEnabled and RageKillMode == "GUN" and not isRoundActive then
-			centerKillFrame.Visible = true
-			centerKillLabel.Text = "Rage Kill: Waiting Round..."
-		else
-			if not RageKillEnabled or RageKillMode == "KNIFE" then
-				centerKillFrame.Visible = false
-			end
-		end
-	end
+        local char = LocalPlayer.Character
+        local myHRP = char and char:FindFirstChild("HumanoidRootPart")
+        if not myHRP then
+            centerKillLabel.Text = "Rage Kill: Waiting Character..."
+            continue
+        end
+
+        local myTeamName = GetPlayerTeam(LocalPlayer):lower()
+        if myTeamName ~= "team1" and myTeamName ~= "team2" then
+            centerKillLabel.Text = "Rage Kill: Waiting Team..."
+            continue
+        end
+
+        if not ShootGunRemote then
+            local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+            ShootGunRemote = remotes and remotes:FindFirstChild("ShootGun")
+        end
+
+        if not ShootGunRemote then
+            centerKillLabel.Text = "Rage Kill: ShootGun Missing"
+            continue
+        end
+
+        local myPos = myHRP.Position
+        local targetCount = 0
+
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                local targetTeamName = GetPlayerTeam(player):lower()
+                local isEnemy =
+                    (targetTeamName == "team1" or targetTeamName == "team2")
+                    and myTeamName ~= targetTeamName
+                    and IsInSameMatchWorkspace(player)
+
+                if isEnemy and _G.__PrivateHubRageTargetState.Enabled then
+                    isEnemy = (_G.__PrivateHubRageTargetState.TargetName ~= "" and player.Name == _G.__PrivateHubRageTargetState.TargetName)
+                end
+
+                if isEnemy then
+                    local tChar = player.Character
+                    local tHRP = tChar and tChar:FindFirstChild("HumanoidRootPart")
+                    local tHum = tChar and tChar:FindFirstChildOfClass("Humanoid")
+
+                    if tHRP and tHum and tHum.Health > 0
+                        and (myPos - tHRP.Position).Magnitude <= 1500 then
+                        targetCount = targetCount + 1
+                        pcall(function()
+                            ShootGunRemote:FireServer(myPos, tHRP.Position, tHRP, tHRP.Position)
+                        end)
+                    end
+                end
+            end
+        end
+
+        if _G.__PrivateHubRageTargetState.Enabled and _G.__PrivateHubRageTargetState.TargetName == "" then
+            centerKillLabel.Text = "Rage Kill: Select Target"
+        elseif targetCount > 0 then
+            centerKillLabel.Text = _G.__PrivateHubRageTargetState.Enabled
+                and ("Rage Kill: " .. _G.__PrivateHubRageTargetState.TargetName)
+                or ("Rage Kill: " .. tostring(targetCount) .. " Target(s)")
+        elseif _G.__PrivateHubRageTargetState.Enabled then
+            centerKillLabel.Text = "Rage Kill: Target Not Available"
+        else
+            centerKillLabel.Text = "Rage Kill: No Targets"
+        end
+    end
 end)
 
 -- [[ ループ2: Rage Kill KNIFE / AREA KILL ]]
@@ -4592,45 +4883,57 @@ _G.__PHRageGetKnifeRemotes = function()
 end
 
 task.spawn(function()
-	while true do
-		if RageKillEnabled and RageKillMode == "KNIFE" then
-			local myChar = LocalPlayer.Character
-			local hum = myChar and myChar:FindFirstChildOfClass("Humanoid")
-			if myChar and hum and not myChar:FindFirstChildOfClass("Tool") then
-				local knife = _G.__PHRageGetKnifeByProperty()
-				if knife then pcall(function() hum:EquipTool(knife) end) end
-			end
-			local hitRemote = _G.__PHRageGetKnifeRemotes()
-			local myPos = (myChar and myChar.PrimaryPart) and myChar.PrimaryPart.Position or Vector3.new(0, 0, 0)
-			if hitRemote then
-				local myTeamName = GetPlayerTeam(LocalPlayer):lower()
-				if myTeamName == "team1" or myTeamName == "team2" then
-					for _, p in ipairs(Players:GetPlayers()) do
-						if p ~= LocalPlayer and p.Character then
-							local targetTeamName = GetPlayerTeam(p):lower()
-							local isEnemy = false
+    while true do
+        if RageKillEnabled and RageKillMode == "KNIFE" then
+            local myChar = LocalPlayer.Character
+            local hum = myChar and myChar:FindFirstChildOfClass("Humanoid")
+            if myChar and hum and not myChar:FindFirstChildOfClass("Tool") then
+                local knife = _G.__PHRageGetKnifeByProperty()
+                if knife then pcall(function() hum:EquipTool(knife) end) end
+            end
 
-							-- ESPと同じ判定: Team1/Team2の敵チームかつ同じMatch Workspace内だけ対象
-							if (targetTeamName == "team1" or targetTeamName == "team2") and myTeamName ~= targetTeamName then
-								if IsInSameMatchWorkspace(p) then
-									isEnemy = true
-								end
-							end
+            local hitRemote = _G.__PHRageGetKnifeRemotes()
+            local myPos = (myChar and myChar.PrimaryPart) and myChar.PrimaryPart.Position or Vector3.new(0, 0, 0)
+            if hitRemote then
+                local myTeamName = GetPlayerTeam(LocalPlayer):lower()
+                if myTeamName == "team1" or myTeamName == "team2" then
+                    for _, p in ipairs(Players:GetPlayers()) do
+                        if p ~= LocalPlayer and p.Character then
+                            local targetTeamName = GetPlayerTeam(p):lower()
+                            local isEnemy = false
 
-							if isEnemy then
-								local head = p.Character:FindFirstChild("Head") or p.Character.PrimaryPart
-								local enemyHum = p.Character:FindFirstChildOfClass("Humanoid")
-								if head and enemyHum and enemyHum.Health > 0 and (head.Position - myPos).Magnitude <= 1000 then
-									pcall(function() hitRemote:FireServer(head, head.Position) end)
-								end
-							end
-						end
-					end
-				end
-			end
-		end
-		RunService.Heartbeat:Wait()
-	end
+                            if (targetTeamName == "team1" or targetTeamName == "team2") and myTeamName ~= targetTeamName then
+                                if IsInSameMatchWorkspace(p) then isEnemy = true end
+                            end
+
+                            if isEnemy and _G.__PrivateHubRageTargetState.Enabled then
+                                isEnemy = (_G.__PrivateHubRageTargetState.TargetName ~= "" and p.Name == _G.__PrivateHubRageTargetState.TargetName)
+                            end
+
+                            if isEnemy then
+                                local head = p.Character:FindFirstChild("Head") or p.Character.PrimaryPart
+                                local enemyHum = p.Character:FindFirstChildOfClass("Humanoid")
+                                if head and enemyHum and enemyHum.Health > 0 and (head.Position - myPos).Magnitude <= 1000 then
+                                    pcall(function() hitRemote:FireServer(head, head.Position) end)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+
+            centerKillFrame.Visible = true
+            centerKillLabel.TextColor3 = _G.__PrivateHubRageTargetState.TextColor or Color3.fromRGB(255, 50, 50)
+            if _G.__PrivateHubRageTargetState.Enabled and _G.__PrivateHubRageTargetState.TargetName ~= "" then
+                centerKillLabel.Text = "Rage Kill: " .. _G.__PrivateHubRageTargetState.TargetName
+            elseif _G.__PrivateHubRageTargetState.Enabled then
+                centerKillLabel.Text = "Rage Kill: Select Target"
+            else
+                centerKillLabel.Text = "Rage Kill: KNIFE"
+            end
+        end
+        RunService.Heartbeat:Wait()
+    end
 end)
 
 -- [[ ループ3: Slow All Kill メイン処理 ]]
@@ -4723,7 +5026,7 @@ end)
 -- 5. Main タブに Combat Section（トグル枠）を新しく追加
 local combatSection = Instance.new("Frame")
 combatSection.Name = "CombatSection"
-combatSection.Size = UDim2.new(0.92, 0, 0, 215)
+combatSection.Size = UDim2.new(0.92, 0, 0, 500)
 combatSection.Position = UDim2.new(0.04, 0, 0, 1205)
 combatSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 combatSection.BorderSizePixel = 0
@@ -4731,7 +5034,7 @@ combatSection.Parent = mainScroll
 Instance.new("UICorner", combatSection).CornerRadius = UDim.new(0, 6)
 addStroke(combatSection, Color3.fromRGB(40, 40, 45), 0, 1)
 
-mainScroll.CanvasSize = UDim2.new(0, 0, 0, 1870)
+mainScroll.CanvasSize = UDim2.new(0, 0, 0, 1830)
 
 local combatTitle = Instance.new("TextLabel")
 combatTitle.Name = "DynamicText"
@@ -4816,11 +5119,177 @@ _G.__PrivateHubRageModeBtn.MouseButton1Click:Connect(function()
 	_G.__PrivateHubRageDropdown.Visible = not _G.__PrivateHubRageDropdown.Visible
 end)
 
-CheckboxSetters["SlowKill"] = createCheckboxToggle(combatSection, "Slow Kill (Team)", 140, function(enabled)
+-- ==========================================================
+-- Rage Kill Target Lock / Marker
+-- ==========================================================
+local function clearRageTargetMarker()
+    local h = _G.__PrivateHubRageTargetState.Highlight
+    _G.__PrivateHubRageTargetState.Highlight = nil
+    if h then pcall(function() h:Destroy() end) end
+end
+
+local function findRageTargetPlayer()
+    local name = _G.__PrivateHubRageTargetState.TargetName
+    if not name or name == "" then return nil end
+    local p = Players:FindFirstChild(name)
+    if not p or p == LocalPlayer then return nil end
+
+    local myTeam = GetPlayerTeam(LocalPlayer):lower()
+    local theirTeam = GetPlayerTeam(p):lower()
+    if (myTeam ~= "team1" and myTeam ~= "team2")
+        or (theirTeam ~= "team1" and theirTeam ~= "team2")
+        or myTeam == theirTeam
+        or not IsInSameMatchWorkspace(p) then
+        return nil
+    end
+
+    local hum = p.Character and p.Character:FindFirstChildOfClass("Humanoid")
+    if not hum or hum.Health <= 0 then return nil end
+    return p
+end
+
+local function updateRageTargetMarker()
+    local p = findRageTargetPlayer()
+    if not _G.__PrivateHubRageTargetState.Enabled or not p or not p.Character then
+        clearRageTargetMarker()
+        return
+    end
+
+    local h = _G.__PrivateHubRageTargetState.Highlight
+    if not h or h.Parent ~= p.Character then
+        clearRageTargetMarker()
+        h = Instance.new("Highlight")
+        h.Name = "PrivateHub_RageTargetMarker"
+        h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        h.FillTransparency = 1
+        h.OutlineTransparency = 0
+        h.Parent = p.Character
+        _G.__PrivateHubRageTargetState.Highlight = h
+    end
+    h.OutlineColor = _G.__PrivateHubRageTargetState.TargetMarkerColor or Color3.fromRGB(255, 70, 70)
+    h.FillColor = _G.__PrivateHubRageTargetState.TargetMarkerColor or Color3.fromRGB(255, 70, 70)
+end
+
+local function setRageTargetEnabled(enabled)
+    _G.__PrivateHubRageTargetState.Enabled = enabled == true
+    if not _G.__PrivateHubRageTargetState.Enabled then clearRageTargetMarker() end
+end
+
+CheckboxSetters["RageKillTarget"] = createCheckboxToggle(combatSection, "Target Lock", 105, function(enabled)
+    setRageTargetEnabled(enabled)
+end)
+if _G.__PrivateHubRageTargetState.Enabled then
+    CheckboxSetters["RageKillTarget"](_G.__PrivateHubRageTargetState.Enabled, true)
+end
+
+_G.__PrivateHubRageTargetBtn = Instance.new("TextButton")
+_G.__PrivateHubRageTargetBtn.Name = "RageKillTargetDropdown"
+_G.__PrivateHubRageTargetBtn.Size = UDim2.new(1, -20, 0, 30)
+_G.__PrivateHubRageTargetBtn.Position = UDim2.new(0, 10, 0, 142)
+_G.__PrivateHubRageTargetBtn.BackgroundColor3 = Color3.fromRGB(22, 22, 25)
+_G.__PrivateHubRageTargetBtn.BorderSizePixel = 0
+_G.__PrivateHubRageTargetBtn.Font = FONT_MAIN
+_G.__PrivateHubRageTargetBtn.Text = "Target: " .. (_G.__PrivateHubRageTargetState.TargetName ~= "" and _G.__PrivateHubRageTargetState.TargetName or "Select player...")
+_G.__PrivateHubRageTargetBtn.TextColor3 = Color3.fromRGB(205, 205, 210)
+_G.__PrivateHubRageTargetBtn.TextSize = 12
+_G.__PrivateHubRageTargetBtn.TextXAlignment = Enum.TextXAlignment.Left
+_G.__PrivateHubRageTargetBtn.Parent = combatSection
+Instance.new("UICorner", _G.__PrivateHubRageTargetBtn).CornerRadius = UDim.new(0, 4)
+addPadding(_G.__PrivateHubRageTargetBtn, 10)
+addStroke(_G.__PrivateHubRageTargetBtn, Color3.fromRGB(50, 50, 55), 0, 1)
+
+_G.__PrivateHubRageTargetList = Instance.new("ScrollingFrame")
+_G.__PrivateHubRageTargetList.Name = "RageKillTargetList"
+_G.__PrivateHubRageTargetList.Size = UDim2.new(1, -20, 0, 110)
+_G.__PrivateHubRageTargetList.Position = UDim2.new(0, 10, 0, 174)
+_G.__PrivateHubRageTargetList.BackgroundColor3 = Color3.fromRGB(20, 20, 23)
+_G.__PrivateHubRageTargetList.BorderSizePixel = 0
+_G.__PrivateHubRageTargetList.Visible = false
+_G.__PrivateHubRageTargetList.ZIndex = 30
+_G.__PrivateHubRageTargetList.ScrollBarThickness = 3
+_G.__PrivateHubRageTargetList.CanvasSize = UDim2.new(0, 0, 0, 0)
+_G.__PrivateHubRageTargetList.Parent = combatSection
+Instance.new("UICorner", _G.__PrivateHubRageTargetList).CornerRadius = UDim.new(0, 4)
+addStroke(_G.__PrivateHubRageTargetList, Color3.fromRGB(50, 50, 55), 0, 1)
+
+local function refreshRageTargetList()
+    for _, child in ipairs(_G.__PrivateHubRageTargetList:GetChildren()) do
+        if child:IsA("TextButton") then child:Destroy() end
+    end
+
+    local myTeam = GetPlayerTeam(LocalPlayer):lower()
+    local names = {}
+    if myTeam == "team1" or myTeam == "team2" then
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                local t = GetPlayerTeam(p):lower()
+                if (t == "team1" or t == "team2") and t ~= myTeam and IsInSameMatchWorkspace(p) then
+                    local hum = p.Character and p.Character:FindFirstChildOfClass("Humanoid")
+                    if hum and hum.Health > 0 then table.insert(names, p.Name) end
+                end
+            end
+        end
+    end
+
+    table.sort(names, function(a, b) return a:lower() < b:lower() end)
+
+    for i, name in ipairs(names) do
+        local b = Instance.new("TextButton")
+        b.Size = UDim2.new(1, -4, 0, 27)
+        b.Position = UDim2.new(0, 2, 0, (i - 1) * 27)
+        b.BackgroundTransparency = 1
+        b.BorderSizePixel = 0
+        b.Font = FONT_MAIN
+        b.Text = name
+        b.TextColor3 = (name == _G.__PrivateHubRageTargetState.TargetName) and Color3.fromRGB(240, 200, 210) or Color3.fromRGB(205, 205, 210)
+        b.TextSize = 12
+        b.TextXAlignment = Enum.TextXAlignment.Left
+        b.ZIndex = 31
+        b.Parent = _G.__PrivateHubRageTargetList
+        addPadding(b, 8)
+        b.MouseButton1Click:Connect(function()
+            _G.__PrivateHubRageTargetState.TargetName = name
+            _G.__PrivateHubRageTargetBtn.Text = "Target: " .. name
+            _G.__PrivateHubRageTargetList.Visible = false
+            updateRageTargetMarker()
+        end)
+    end
+
+    if #names == 0 then
+        local empty = Instance.new("TextLabel")
+        empty.Size = UDim2.new(1, -8, 0, 27)
+        empty.Position = UDim2.new(0, 4, 0, 0)
+        empty.BackgroundTransparency = 1
+        empty.Font = FONT_MAIN
+        empty.Text = "No enemy targets"
+        empty.TextColor3 = Color3.fromRGB(140, 140, 145)
+        empty.TextSize = 12
+        empty.TextXAlignment = Enum.TextXAlignment.Left
+        empty.ZIndex = 31
+        empty.Parent = _G.__PrivateHubRageTargetList
+        addPadding(empty, 4)
+    end
+    _G.__PrivateHubRageTargetList.CanvasSize = UDim2.new(0, 0, 0, math.max(27, #names * 27))
+end
+
+_G.__PrivateHubRageTargetBtn.MouseButton1Click:Connect(function()
+    refreshRageTargetList()
+    _G.__PrivateHubRageTargetList.Visible = not _G.__PrivateHubRageTargetList.Visible
+end)
+
+_G.__PHRageTargetMarkerColorBtn = createColorPreviewRowInParent(combatSection, "Target Marker Color", _G.__PrivateHubRageTargetState.TargetMarkerColor, 292)
+_G.__PHRageTextColorBtn = createColorPreviewRowInParent(combatSection, "RageKill Text Color", _G.__PrivateHubRageTargetState.TextColor, 330)
+
+_G.__PHRageTargetMarkerColorBtn.MouseButton1Click:Connect(function() openPalette(_G.__PHRageTargetMarkerColorBtn) end)
+_G.__PHRageTextColorBtn.MouseButton1Click:Connect(function() openPalette(_G.__PHRageTextColorBtn) end)
+
+RunService.Heartbeat:Connect(updateRageTargetMarker)
+
+CheckboxSetters["SlowKill"] = createCheckboxToggle(combatSection, "Slow Kill (Team)", 368, function(enabled)
 	SlowKillEnabled = enabled
 end)
 
-CheckboxSetters["AutoEquip"] = createCheckboxToggle(combatSection, "Auto Equip Gun", 180, function(enabled)
+CheckboxSetters["AutoEquip"] = createCheckboxToggle(combatSection, "Auto Equip Gun", 408, function(enabled)
 	AutoEquipEnabled = enabled
 end)
 
@@ -4836,6 +5305,10 @@ if gatherSettingsData then
 		if ok and type(data) == "table" then
 			data.rageKill = RageKillEnabled
 			data.rageKillMode = RageKillMode
+            data.rageKillTargetEnabled = _G.__PrivateHubRageTargetState.Enabled == true
+            data.rageKillTargetName = _G.__PrivateHubRageTargetState.TargetName or ""
+            data.rageKillTargetMarkerColor = Config_colorToHex(_G.__PrivateHubRageTargetState.TargetMarkerColor or Color3.fromRGB(255, 70, 70))
+            data.rageKillTextColor = Config_colorToHex(_G.__PrivateHubRageTargetState.TextColor or Color3.fromRGB(255, 50, 50))
 			data.slowKill = SlowKillEnabled
 			data.autoEquip = AutoEquipEnabled
 			data.walkSpeedEnabled = ModSpeedEnabled -- 設定保存にも追加
@@ -4866,7 +5339,24 @@ if loadConfigByName then
 							RageKillMode = (data.rageKillMode == "KNIFE") and "KNIFE" or "GUN"
 						end
 					end
-					if data.slowKill ~= nil and CheckboxSetters["SlowKill"] then 
+                    if data.rageKillTargetEnabled ~= nil then
+                        _G.__PrivateHubRageTargetState.Enabled = data.rageKillTargetEnabled == true
+                    end
+                    if data.rageKillTargetName ~= nil then
+                        _G.__PrivateHubRageTargetState.TargetName = tostring(data.rageKillTargetName or "")
+                        if _G.__PrivateHubRageTargetBtn then
+                            _G.__PrivateHubRageTargetBtn.Text = "Target: " .. (_G.__PrivateHubRageTargetState.TargetName ~= "" and _G.__PrivateHubRageTargetState.TargetName or "Select player...")
+                        end
+                    end
+                    if data.rageKillTargetMarkerColor then
+                        _G.__PrivateHubRageTargetState.TargetMarkerColor = Config_hexToColor(data.rageKillTargetMarkerColor)
+                        if _G.__PHRageTargetMarkerColorBtn then _G.__PHRageTargetMarkerColorBtn.BackgroundColor3 = _G.__PrivateHubRageTargetState.TargetMarkerColor end
+                    end
+                    if data.rageKillTextColor then
+                        _G.__PrivateHubRageTargetState.TextColor = Config_hexToColor(data.rageKillTextColor)
+                        if _G.__PHRageTextColorBtn then _G.__PHRageTextColorBtn.BackgroundColor3 = _G.__PrivateHubRageTargetState.TextColor end
+                    end
+                    if data.slowKill ~= nil and CheckboxSetters["SlowKill"] then 
 						CheckboxSetters["SlowKill"](data.slowKill, true) 
 					end
 					if data.autoEquip ~= nil and CheckboxSetters["AutoEquip"] then 
