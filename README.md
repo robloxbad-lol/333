@@ -1340,7 +1340,7 @@ local mainScroll = Instance.new("ScrollingFrame")
 mainScroll.Size = UDim2.new(1, 0, 1, 0)
 mainScroll.BackgroundTransparency = 1
 mainScroll.BorderSizePixel = 0
-mainScroll.CanvasSize = UDim2.new(0, 0, 0, 2150)
+mainScroll.CanvasSize = UDim2.new(0, 0, 0, 2340)
 mainScroll.ScrollBarThickness = 4
 mainScroll.ScrollingDirection = Enum.ScrollingDirection.Y
 mainScroll.ScrollingEnabled = true
@@ -1601,13 +1601,23 @@ do
     makePriority(2, 251, _G.__PrivateHubAutoVoteMapState.Rank2 or "None")
     makePriority(3, 287, _G.__PrivateHubAutoVoteMapState.Rank3 or "None")
 
-    -- 実際のマップ投票Remoteを使用
+    -- 実際のマップ投票Remoteを使用（ポーリングなし）
     task.spawn(function()
-        local mapFolder = ReplicatedStorage:FindFirstChild("Map") or ReplicatedStorage:WaitForChild("Map", 15)
-        local startVoting = mapFolder and (mapFolder:FindFirstChild("StartMapVoting") or mapFolder:WaitForChild("StartMapVoting", 10))
-        local voteMap = mapFolder and (mapFolder:FindFirstChild("VoteMap") or mapFolder:WaitForChild("VoteMap", 10))
+        local mapFolder = ReplicatedStorage:FindFirstChild("Map")
+        if not mapFolder then
+            mapFolder = ReplicatedStorage:WaitForChild("Map", 8)
+        end
+        if not mapFolder then return end
+        local startVoting = mapFolder:FindFirstChild("StartMapVoting")
+        local voteMap = mapFolder:FindFirstChild("VoteMap")
         if not startVoting or not voteMap or not startVoting:IsA("RemoteEvent") then return end
-        startVoting.OnClientEvent:Connect(function(mapList)
+
+        if _G.__PHAutoVoteMapConnection then
+            pcall(function() _G.__PHAutoVoteMapConnection:Disconnect() end)
+            _G.__PHAutoVoteMapConnection = nil
+        end
+
+        _G.__PHAutoVoteMapConnection = startVoting.OnClientEvent:Connect(function(mapList)
             if not _G.__PrivateHubAutoVoteMapState.Enabled or type(mapList) ~= "table" then return end
             local priorities = {
                 _G.__PrivateHubAutoVoteMapState.Rank1 or "Barn",
@@ -1633,119 +1643,54 @@ do
     end)
 end
 
--- Auto Matchmaking: 試合終了時に選択したモードで再キュー
--- 修正版: pcall の複数戻り値を正しく受け取り、RemoteEvent/RemoteFunction の
--- 取得失敗時も再試行する。元コードでは `local ok, remotes = pcall(...)` として
--- JoinQueue/OnMatchFinished の2つを1変数にまとめていたため、finishedRemote が
--- 常に nil になり、OnMatchFinished に接続されていなかった。
+-- Auto Matchmaking: 試合終了時だけ再キュー（常時ポーリングなし）
 do
-    local matchQueueRemote = nil
-    local matchFinishedRemote = nil
-    local matchFinishedConnection = nil
+    local modeMap = { ["1v1"] = "Solo", ["2v2"] = "Duo", ["3v3"] = "Trio", ["4v4"] = "Squad" }
 
-    local modeMap = {
-        ["1v1"] = "Solo",
-        ["2v2"] = "Duo",
-        ["3v3"] = "Trio",
-        ["4v4"] = "Squad"
-    }
+    if _G.__PHMatchFinishedConnection then
+        pcall(function() _G.__PHMatchFinishedConnection:Disconnect() end)
+        _G.__PHMatchFinishedConnection = nil
+    end
 
-    local function getMatchRemotes()
-        local queueRemote = nil
-        local finishedRemote = nil
-
-        local success = pcall(function()
-            local gm = ReplicatedStorage:WaitForChild("GlobalMatchmaking", 10)
-            local gmRemotes = gm and gm:WaitForChild("Remotes", 10)
-            if gmRemotes then
-                queueRemote = gmRemotes:WaitForChild("JoinQueue", 10)
-            end
-
-            local finishedFolder = ReplicatedStorage:WaitForChild("Remotes", 10)
-            if finishedFolder then
-                finishedRemote = finishedFolder:WaitForChild("OnMatchFinished", 10)
-            end
-        end)
-
-        if not success then
-            return nil, nil
-        end
-
+    local function getMatchRemotesFast()
+        local gm = ReplicatedStorage:FindFirstChild("GlobalMatchmaking")
+        local gmRemotes = gm and gm:FindFirstChild("Remotes")
+        local queueRemote = gmRemotes and gmRemotes:FindFirstChild("JoinQueue")
+        local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+        local finishedRemote = remotes and remotes:FindFirstChild("OnMatchFinished")
         return queueRemote, finishedRemote
     end
 
-    local function getQueueArg()
-        local selectedMode = tostring(_G.__PrivateHubMatchState.Mode or "1v1")
-        return modeMap[selectedMode] or "Solo"
-    end
-
     local function invokeJoinQueue()
-        if not _G.__PrivateHubMatchState.Enabled then
-            return false
-        end
-
-        local queueRemote = matchQueueRemote
-        if not queueRemote or not queueRemote.Parent then
-            queueRemote = select(1, getMatchRemotes())
-            matchQueueRemote = queueRemote
-        end
-
-        if not queueRemote then
-            return false
-        end
-
-        local queueArg = getQueueArg()
-        local success = false
-
+        if not _G.__PrivateHubMatchState.Enabled then return end
+        local queueRemote = getMatchRemotesFast()
+        if not queueRemote then return end
+        local queueArg = modeMap[tostring(_G.__PrivateHubMatchState.Mode or "1v1")] or "Solo"
         pcall(function()
             if queueRemote:IsA("RemoteFunction") then
                 queueRemote:InvokeServer(queueArg)
-                success = true
             elseif queueRemote:IsA("RemoteEvent") then
                 queueRemote:FireServer(queueArg)
-                success = true
             end
         end)
-
-        return success
     end
 
-    local function connectMatchFinished()
-        if matchFinishedConnection then
-            matchFinishedConnection:Disconnect()
-            matchFinishedConnection = nil
-        end
-
-        local queueRemote, finishedRemote = getMatchRemotes()
-        matchQueueRemote = queueRemote
-        matchFinishedRemote = finishedRemote
-
-        if not finishedRemote or not finishedRemote:IsA("RemoteEvent") then
-            return false
-        end
-
-        matchFinishedConnection = finishedRemote.OnClientEvent:Connect(function()
-            if not _G.__PrivateHubMatchState.Enabled then
-                return
-            end
-
-            -- 試合終了直後のサーバー側の遷移が完了してから再キューする。
-            task.wait(1.5)
-
-            if _G.__PrivateHubMatchState.Enabled then
-                invokeJoinQueue()
-            end
+    local function installMatchConnection()
+        local _, finishedRemote = getMatchRemotesFast()
+        if not finishedRemote or not finishedRemote:IsA("RemoteEvent") then return false end
+        _G.__PHMatchFinishedConnection = finishedRemote.OnClientEvent:Connect(function()
+            if not _G.__PrivateHubMatchState.Enabled then return end
+            task.delay(1.5, function()
+                if _G.__PrivateHubMatchState.Enabled then invokeJoinQueue() end
+            end)
         end)
-
         return true
     end
 
-    -- Remote がロードされるタイミングに依存しないよう数回再試行。
+    -- Remoteのロード待ちは最大8秒、1秒ごとに1回だけ確認。
     task.spawn(function()
-        for _ = 1, 12 do
-            if connectMatchFinished() then
-                break
-            end
+        for _ = 1, 8 do
+            if installMatchConnection() then break end
             task.wait(1)
         end
     end)
@@ -1753,7 +1698,7 @@ end
 
 local silentAimSection = Instance.new("Frame")
 silentAimSection.Size = UDim2.new(0.92, 0, 0, 400)
-silentAimSection.Position = UDim2.new(0.04, 0, 0, 1385)
+silentAimSection.Position = UDim2.new(0.04, 0, 0, 1915)
 silentAimSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 silentAimSection.BorderSizePixel = 0
 silentAimSection.Parent = mainScroll
@@ -5027,14 +4972,14 @@ end)
 local combatSection = Instance.new("Frame")
 combatSection.Name = "CombatSection"
 combatSection.Size = UDim2.new(0.92, 0, 0, 500)
-combatSection.Position = UDim2.new(0.04, 0, 0, 1205)
+combatSection.Position = UDim2.new(0.04, 0, 0, 1395)
 combatSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 combatSection.BorderSizePixel = 0
 combatSection.Parent = mainScroll
 Instance.new("UICorner", combatSection).CornerRadius = UDim.new(0, 6)
 addStroke(combatSection, Color3.fromRGB(40, 40, 45), 0, 1)
 
-mainScroll.CanvasSize = UDim2.new(0, 0, 0, 1830)
+mainScroll.CanvasSize = UDim2.new(0, 0, 0, 2340)
 
 local combatTitle = Instance.new("TextLabel")
 combatTitle.Name = "DynamicText"
