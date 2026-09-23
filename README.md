@@ -22,7 +22,7 @@ if playerGui:FindFirstChild("PraveteHubGUI") then
 	playerGui.PraveteHubGUI:Destroy()
 end
 -- ==========================================================
--- PrivateHub Teleport Auto Reload
+-- PrivateHub Teleport Auto Reload (重複起動防止版)
 -- ==========================================================
 do
     local RELOAD_URL =
@@ -33,13 +33,26 @@ do
         or (syn and type(syn.queue_on_teleport) == "function" and syn.queue_on_teleport)
         or (fluxus and type(fluxus.queue_on_teleport) == "function" and fluxus.queue_on_teleport)
 
-    if qtp and LocalPlayer then
+    -- 同じExecutor環境でスクリプトを再実行しても
+    -- OnTeleport / queue_on_teleport が二重三重に登録されないようにする。
+    if qtp and LocalPlayer and not _G.__PrivateHubTeleportReloadInstalled then
+        _G.__PrivateHubTeleportReloadInstalled = true
 
         local function getReloadCode()
             return string.format([[
 task.wait(2)
 
 local URL = %q
+
+-- 同一サーバー移動でキューが重複しても、1回だけ本体を起動する。
+local __phJobId = game.JobId
+if __phJobId ~= "" and _G.__PrivateHubQueuedReloadJobId == __phJobId then
+    return
+end
+if __phJobId ~= "" then
+    _G.__PrivateHubQueuedReloadJobId = __phJobId
+end
+
 local source
 
 local req =
@@ -1340,7 +1353,7 @@ local mainScroll = Instance.new("ScrollingFrame")
 mainScroll.Size = UDim2.new(1, 0, 1, 0)
 mainScroll.BackgroundTransparency = 1
 mainScroll.BorderSizePixel = 0
-mainScroll.CanvasSize = UDim2.new(0, 0, 0, 2340)
+mainScroll.CanvasSize = UDim2.new(0, 0, 0, 3295)
 mainScroll.ScrollBarThickness = 4
 mainScroll.ScrollingDirection = Enum.ScrollingDirection.Y
 mainScroll.ScrollingEnabled = true
@@ -1417,7 +1430,8 @@ end)
 -- ==========================================
 local matchSection = Instance.new("Frame")
 matchSection.Name = "MatchSection"
-matchSection.Size = UDim2.new(0.92, 0, 0, 385)
+    matchSection.ClipsDescendants = false
+matchSection.Size = UDim2.new(0.92, 0, 0, 620)
 matchSection.Position = UDim2.new(0.04, 0, 0, 305)
 matchSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 matchSection.BorderSizePixel = 0
@@ -1505,6 +1519,255 @@ CheckboxSetters["AutoMatch"] = createCheckboxToggle(matchSection, "Auto Re-Queue
 end)
 
 -- ==========================================================
+-- Auto Match / Target Snipe (DuelRing)
+-- 元の Auto Match & Snipe Panel を Match 項目へ統合
+-- ==========================================================
+do
+    _G.__PrivateHubMatchTargetState = _G.__PrivateHubMatchTargetState or {
+        AutoMatchEnabled = false,
+        TargetSnipeEnabled = false,
+        TargetName = ""
+    }
+
+    local targetState = _G.__PrivateHubMatchTargetState
+
+    CheckboxSetters["MatchRingAuto"] = createCheckboxToggle(matchSection, "Auto Match (Ring)", 181, function(enabled)
+        targetState.AutoMatchEnabled = enabled == true
+        if enabled then
+            showNotification("Auto Match", "Ring detection enabled")
+        end
+    end)
+
+    local targetBtn = Instance.new("TextButton")
+    targetBtn.Name = "MatchTargetSelector"
+    targetBtn.Size = UDim2.new(1, -20, 0, 30)
+    targetBtn.Position = UDim2.new(0, 10, 0, 217)
+    targetBtn.BackgroundColor3 = Color3.fromRGB(22, 22, 25)
+    targetBtn.BorderSizePixel = 0
+    targetBtn.Font = FONT_MAIN
+    targetBtn.Text = "Target: " .. (targetState.TargetName ~= "" and targetState.TargetName or "Select player...")
+    targetBtn.TextColor3 = Color3.fromRGB(205, 205, 210)
+    targetBtn.TextSize = 12
+    targetBtn.TextXAlignment = Enum.TextXAlignment.Left
+    targetBtn.Parent = matchSection
+    targetBtn.ZIndex = 30
+    Instance.new("UICorner", targetBtn).CornerRadius = UDim.new(0, 4)
+    addPadding(targetBtn, 10)
+    addStroke(targetBtn, Color3.fromRGB(50, 50, 55), 0, 1)
+
+    local targetList = Instance.new("ScrollingFrame")
+    targetList.Name = "MatchTargetList"
+    targetList.Size = UDim2.new(1, -20, 0, 120)
+    targetList.Position = UDim2.new(0, 10, 0, 249)
+    targetList.BackgroundColor3 = Color3.fromRGB(20, 20, 23)
+    targetList.BorderSizePixel = 0
+    targetList.ScrollBarThickness = 3
+    targetList.CanvasSize = UDim2.new(0, 0, 0, 0)
+    targetList.Visible = false
+    targetList.ZIndex = 80
+    targetList.Parent = matchSection
+    Instance.new("UICorner", targetList).CornerRadius = UDim.new(0, 4)
+    addStroke(targetList, Color3.fromRGB(50, 50, 55), 0, 1)
+
+    local targetLayout = Instance.new("UIListLayout")
+    targetLayout.SortOrder = Enum.SortOrder.Name
+    targetLayout.Padding = UDim.new(0, 2)
+    targetLayout.Parent = targetList
+
+    local function refreshMatchTargets()
+        for _, child in ipairs(targetList:GetChildren()) do
+            if child:IsA("TextButton") then child:Destroy() end
+        end
+
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                local button = Instance.new("TextButton")
+                button.Size = UDim2.new(1, -4, 0, 28)
+                button.BackgroundColor3 = Color3.fromRGB(35, 35, 42)
+                button.BorderSizePixel = 0
+                button.Font = FONT_MAIN
+                button.Text = player.DisplayName .. " (@" .. player.Name .. ")"
+                button.TextColor3 = Color3.fromRGB(235, 235, 240)
+                button.TextSize = 11
+                button.TextXAlignment = Enum.TextXAlignment.Left
+                button.ZIndex = 81
+                button.Parent = targetList
+                addPadding(button, 8)
+
+                button.MouseButton1Click:Connect(function()
+                    targetState.TargetName = player.Name
+                    targetBtn.Text = "Target: " .. player.DisplayName
+                    targetList.Visible = false
+                end)
+            end
+        end
+
+        targetList.CanvasSize = UDim2.new(0, 0, 0, targetLayout.AbsoluteContentSize.Y + 4)
+    end
+
+    targetBtn.MouseButton1Click:Connect(function()
+        refreshMatchTargets()
+        targetList.Visible = not targetList.Visible
+    end)
+
+    Players.PlayerAdded:Connect(function()
+        if targetList.Visible then refreshMatchTargets() end
+    end)
+
+    Players.PlayerRemoving:Connect(function(player)
+        if targetState.TargetName == player.Name then
+            targetState.TargetName = ""
+            targetBtn.Text = "Target: Select player..."
+            targetState.TargetSnipeEnabled = false
+        end
+        if targetList.Visible then refreshMatchTargets() end
+    end)
+
+    CheckboxSetters["TargetSnipe"] = createCheckboxToggle(matchSection, "Target Snipe", 253, function(enabled)
+        targetState.TargetSnipeEnabled = enabled == true
+        if enabled then
+            refreshMatchTargets()
+            showNotification("Target Snipe", targetState.TargetName ~= "" and ("Target: " .. targetState.TargetName) or "Select a target")
+        end
+    end)
+
+    -- DuelRing検出 / ターゲットの敵側パッドへ追従
+    task.spawn(function()
+        local rings = {}
+        local locking = false
+        local touchDistance = 6
+
+        local function refreshRings()
+            table.clear(rings)
+            for _, descendant in ipairs(Workspace:GetDescendants()) do
+                if (descendant:IsA("Folder") or descendant:IsA("Model")) and string.sub(descendant.Name, 1, 9) == "DuelRing_" then
+                    local pads = {}
+                    for _, inner in ipairs(descendant:GetDescendants()) do
+                        if inner.Name == "DuelPad" then
+                            local pad = nil
+                            if inner:IsA("BasePart") then
+                                pad = inner
+                            elseif inner:IsA("Model") then
+                                pad = inner:FindFirstChild("Pad", true)
+                                if not (pad and pad:IsA("BasePart")) then
+                                    pad = inner.PrimaryPart
+                                end
+                            end
+                            if pad and pad:IsA("BasePart") then
+                                table.insert(pads, pad)
+                            end
+                        end
+                    end
+                    if #pads > 0 then
+                        table.insert(rings, {Instance = descendant, Pads = pads, Mode = descendant.Name})
+                    end
+                end
+            end
+        end
+
+        local function playerPad(player)
+            local char = player and player.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if not root or not hum or hum.Health <= 0 then return nil, nil end
+
+            for _, ring in ipairs(rings) do
+                if ring.Instance.Parent then
+                    for index, pad in ipairs(ring.Pads) do
+                        if pad and pad.Parent and (root.Position - pad.Position).Magnitude <= touchDistance then
+                            return ring, index
+                        end
+                    end
+                end
+            end
+            return nil, nil
+        end
+
+        local function padCounts(ring)
+            local counts = {}
+            for i = 1, #ring.Pads do counts[i] = 0 end
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer then
+                    local r, index = playerPad(player)
+                    if r == ring and index then counts[index] = (counts[index] or 0) + 1 end
+                end
+            end
+            return counts
+        end
+
+        local function moveToTargetEnemy()
+            local target = Players:FindFirstChild(targetState.TargetName)
+            local char = LocalPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            if not target or not root then return false end
+
+            local ring, targetPadIndex = playerPad(target)
+            if not ring or not targetPadIndex then return false end
+
+            local counts = padCounts(ring)
+            local bestIndex, bestCount = nil, math.huge
+            for index, count in ipairs(counts) do
+                if index ~= targetPadIndex and count < bestCount then
+                    bestCount = count
+                    bestIndex = index
+                end
+            end
+
+            local pad = bestIndex and ring.Pads[bestIndex]
+            if pad and pad.Parent then
+                root.AssemblyLinearVelocity = Vector3.zero
+                root.AssemblyAngularVelocity = Vector3.zero
+                char:PivotTo(pad.CFrame * CFrame.new(0, -15, 0))
+                return true
+            end
+            return false
+        end
+
+        while true do
+            local active = targetState.TargetSnipeEnabled or targetState.AutoMatchEnabled
+            if active and not locking then
+                if #rings == 0 then refreshRings() end
+
+                if targetState.TargetSnipeEnabled and targetState.TargetName ~= "" then
+                    if moveToTargetEnemy() then
+                        locking = true
+                        task.wait(0.1)
+                        locking = false
+                    end
+                elseif targetState.AutoMatchEnabled then
+                    local found = false
+                    for _, ring in ipairs(rings) do
+                        local counts = padCounts(ring)
+                        local minIndex, minCount, maxCount, total = nil, math.huge, -1, 0
+                        for index, count in ipairs(counts) do
+                            total += count
+                            if count < minCount then minCount, minIndex = count, index end
+                            if count > maxCount then maxCount = count end
+                        end
+                        if total > 0 and maxCount > minCount and ring.Pads[minIndex] then
+                            local char = LocalPlayer.Character
+                            local root = char and char:FindFirstChild("HumanoidRootPart")
+                            if root then
+                                root.AssemblyLinearVelocity = Vector3.zero
+                                root.AssemblyAngularVelocity = Vector3.zero
+                                char:PivotTo(ring.Pads[minIndex].CFrame * CFrame.new(0, -15, 0))
+                                found = true
+                                break
+                            end
+                        end
+                    end
+                    if found then task.wait(0.1) end
+                end
+            else
+                if #rings > 0 then table.clear(rings) end
+            end
+
+            task.wait(0.15)
+        end
+    end)
+end
+
+-- ==========================================================
 -- Auto Vote Map (Priority 1 / 2 / 3)
 -- Provided Map.StartMapVoting / Map.VoteMap implementation
 -- ==========================================================
@@ -1548,7 +1811,7 @@ do
         list.ScrollBarThickness = 2
         list.CanvasSize = UDim2.new(0, 0, 0, #mapOptions * 27)
         list.Visible = false
-        list.ZIndex = 50
+        list.ZIndex = 1000
         list.Parent = matchSection
         Instance.new("UICorner", list).CornerRadius = UDim.new(0, 4)
         addStroke(list, Color3.fromRGB(50, 50, 55), 0, 1)
@@ -1571,7 +1834,7 @@ do
             opt.TextColor3 = Color3.fromRGB(215, 215, 220)
             opt.TextSize = 12
             opt.TextXAlignment = Enum.TextXAlignment.Left
-            opt.ZIndex = 51
+            opt.ZIndex = 1001
             opt.Parent = list
             addPadding(opt, 10)
             opt.MouseButton1Click:Connect(function() setValue(option) end)
@@ -1583,7 +1846,7 @@ do
             else
                 if voteUI.ActiveList and voteUI.ActiveList ~= list then closeList(voteUI.ActiveList) end
                 list.Visible = true
-                list.Size = UDim2.new(1, -20, 0, math.min(#mapOptions * 27, 135))
+                list.Size = UDim2.new(1, -20, 0, math.min(#mapOptions * 27, 162))
                 voteUI.ActiveList = list
             end
         end)
@@ -1592,14 +1855,14 @@ do
         return btn
     end
 
-    CheckboxSetters["AutoVoteMap"] = createCheckboxToggle(matchSection, "Auto Vote Map", 181, function(enabled)
+    CheckboxSetters["AutoVoteMap"] = createCheckboxToggle(matchSection, "Auto Vote Map", 289, function(enabled)
         _G.__PrivateHubAutoVoteMapState.Enabled = enabled == true
         if enabled then showNotification("Auto Vote Map", "Enabled") end
     end)
 
-    makePriority(1, 215, _G.__PrivateHubAutoVoteMapState.Rank1 or "Barn")
-    makePriority(2, 251, _G.__PrivateHubAutoVoteMapState.Rank2 or "None")
-    makePriority(3, 287, _G.__PrivateHubAutoVoteMapState.Rank3 or "None")
+    makePriority(1, 323, _G.__PrivateHubAutoVoteMapState.Rank1 or "Barn")
+    makePriority(2, 359, _G.__PrivateHubAutoVoteMapState.Rank2 or "None")
+    makePriority(3, 395, _G.__PrivateHubAutoVoteMapState.Rank3 or "None")
 
     -- 実際のマップ投票Remoteを使用（ポーリングなし）
     task.spawn(function()
@@ -1642,6 +1905,211 @@ do
         end)
     end)
 end
+
+
+-- ==========================================================
+-- Teleport Section
+-- 追従TP / 固定TP / ランダムTPをMainタブに統合
+-- ==========================================================
+task.spawn(function()
+    _G.__PrivateHubTeleportState = _G.__PrivateHubTeleportState or {
+        FollowEnabled = false,
+        RandomEnabled = false,
+        TargetName = "",
+        OffsetX = 0,
+        OffsetY = 3,
+        OffsetZ = 0,
+        RandomX = 0,
+        RandomY = 50,
+        RandomZ = 0,
+        RandomRange = 500,
+        RandomYRange = 100
+    }
+
+    local state = _G.__PrivateHubTeleportState
+    local teleportSection = Instance.new("Frame")
+    teleportSection.Name = "TeleportSection"
+    teleportSection.Size = UDim2.new(0.92, 0, 0, 620)
+    teleportSection.Position = UDim2.new(0.04, 0, 0, 1630)
+    teleportSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
+    teleportSection.BorderSizePixel = 0
+    teleportSection.Parent = mainScroll
+    Instance.new("UICorner", teleportSection).CornerRadius = UDim.new(0, 6)
+    addStroke(teleportSection, Color3.fromRGB(40, 40, 45), 0, 1)
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0, 30)
+    title.BackgroundTransparency = 1
+    title.Font = FONT_BOLD
+    title.Text = "Teleport"
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.TextSize = 13
+    title.Parent = teleportSection
+
+    -- Target selection
+    local targetBtn = Instance.new("TextButton")
+    targetBtn.Size = UDim2.new(1, -20, 0, 32)
+    targetBtn.Position = UDim2.new(0, 10, 0, 36)
+    targetBtn.BackgroundColor3 = Color3.fromRGB(22, 22, 25)
+    targetBtn.BorderSizePixel = 0
+    targetBtn.Font = FONT_MAIN
+    targetBtn.Text = "Target: " .. (state.TargetName ~= "" and state.TargetName or "Select player...")
+    targetBtn.TextColor3 = Color3.fromRGB(205, 205, 210)
+    targetBtn.TextSize = 12
+    targetBtn.TextXAlignment = Enum.TextXAlignment.Left
+    targetBtn.Parent = teleportSection
+    Instance.new("UICorner", targetBtn).CornerRadius = UDim.new(0, 4)
+    addPadding(targetBtn, 10)
+    addStroke(targetBtn, Color3.fromRGB(50, 50, 55), 0, 1)
+
+    local targetList = Instance.new("ScrollingFrame")
+    targetList.Size = UDim2.new(1, -20, 0, 100)
+    targetList.Position = UDim2.new(0, 10, 0, 70)
+    targetList.BackgroundColor3 = Color3.fromRGB(20, 20, 23)
+    targetList.BorderSizePixel = 0
+    targetList.ScrollBarThickness = 3
+    targetList.Visible = false
+    targetList.ZIndex = 60
+    targetList.Parent = teleportSection
+    Instance.new("UICorner", targetList).CornerRadius = UDim.new(0, 4)
+    addStroke(targetList, Color3.fromRGB(50, 50, 55), 0, 1)
+
+    local function refreshTargetList()
+        for _, child in ipairs(targetList:GetChildren()) do
+            if child:IsA("TextButton") then child:Destroy() end
+        end
+        local count = 0
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                count += 1
+                local b = Instance.new("TextButton")
+                b.Size = UDim2.new(1, -4, 0, 27)
+                b.Position = UDim2.new(0, 2, 0, (count - 1) * 27)
+                b.BackgroundTransparency = 1
+                b.BorderSizePixel = 0
+                b.Font = FONT_MAIN
+                b.Text = player.Name
+                b.TextColor3 = Color3.fromRGB(205, 205, 210)
+                b.TextSize = 12
+                b.TextXAlignment = Enum.TextXAlignment.Left
+                b.ZIndex = 61
+                b.Parent = targetList
+                addPadding(b, 8)
+                b.MouseButton1Click:Connect(function()
+                    state.TargetName = player.Name
+                    targetBtn.Text = "Target: " .. player.Name
+                    targetList.Visible = false
+                end)
+            end
+        end
+        targetList.CanvasSize = UDim2.new(0, 0, 0, count * 27)
+    end
+
+    targetBtn.MouseButton1Click:Connect(function()
+        refreshTargetList()
+        targetList.Visible = not targetList.Visible
+    end)
+    Players.PlayerAdded:Connect(refreshTargetList)
+    Players.PlayerRemoving:Connect(refreshTargetList)
+
+    CheckboxSetters["TeleportFollow"] = createCheckboxToggle(teleportSection, "Target Follow TP", 178, function(enabled)
+        state.FollowEnabled = enabled == true
+    end)
+
+    SliderSetters["TeleportOffsetX"] = createSliderRow(teleportSection, "Offset X", -100, 100, state.OffsetX, 214, function(v)
+        state.OffsetX = v
+    end)
+    SliderSetters["TeleportOffsetY"] = createSliderRow(teleportSection, "Offset Y", -100, 100, state.OffsetY, 259, function(v)
+        state.OffsetY = v
+    end)
+    SliderSetters["TeleportOffsetZ"] = createSliderRow(teleportSection, "Offset Z", -100, 100, state.OffsetZ, 304, function(v)
+        state.OffsetZ = v
+    end)
+
+    CheckboxSetters["TeleportRandom"] = createCheckboxToggle(teleportSection, "Random TP", 352, function(enabled)
+        state.RandomEnabled = enabled == true
+    end)
+
+    SliderSetters["TeleportRandomX"] = createSliderRow(teleportSection, "Random X Center", -5000, 5000, state.RandomX, 388, function(v)
+        state.RandomX = v
+    end)
+    SliderSetters["TeleportRandomY"] = createSliderRow(teleportSection, "Random Y Center", -500, 5000, state.RandomY, 433, function(v)
+        state.RandomY = v
+    end)
+    SliderSetters["TeleportRandomZ"] = createSliderRow(teleportSection, "Random Z Center", -5000, 5000, state.RandomZ, 478, function(v)
+        state.RandomZ = v
+    end)
+    SliderSetters["TeleportRandomRange"] = createSliderRow(teleportSection, "Random Range", 0, 5000, state.RandomRange, 523, function(v)
+        state.RandomRange = v
+    end)
+    SliderSetters["TeleportRandomYRange"] = createSliderRow(teleportSection, "Random Y Range", 0, 1000, state.RandomYRange, 568, function(v)
+        state.RandomYRange = v
+    end)
+
+    _G.__PrivateHubTeleportUI = {
+        Section = teleportSection,
+        TargetRefresh = refreshTargetList
+    }
+
+    _G.__PrivateHubTeleportApplyConfig = function(data)
+        if type(data) ~= "table" then return end
+        local bools = {
+            TeleportFollow = "followTeleport",
+            TeleportRandom = "randomTeleport"
+        }
+        for key, field in pairs(bools) do
+            if data[field] ~= nil and CheckboxSetters[key] then
+                CheckboxSetters[key](data[field], true)
+            end
+        end
+        local sliders = {
+            {"TeleportOffsetX","teleportOffsetX"},
+            {"TeleportOffsetY","teleportOffsetY"},
+            {"TeleportOffsetZ","teleportOffsetZ"},
+            {"TeleportRandomX","teleportRandomX"},
+            {"TeleportRandomY","teleportRandomY"},
+            {"TeleportRandomZ","teleportRandomZ"},
+            {"TeleportRandomRange","teleportRandomRange"},
+            {"TeleportRandomYRange","teleportRandomYRange"}
+        }
+        for _, item in ipairs(sliders) do
+            if data[item[2]] ~= nil and SliderSetters[item[1]] then
+                SliderSetters[item[1]](tonumber(data[item[2]]) or 0)
+            end
+        end
+        if data.teleportTargetName then
+            state.TargetName = tostring(data.teleportTargetName)
+            targetBtn.Text = "Target: " .. (state.TargetName ~= "" and state.TargetName or "Select player...")
+        end
+    end
+
+    -- 追従TP
+    RunService.RenderStepped:Connect(function()
+        if not state.FollowEnabled or state.TargetName == "" then return end
+        local target = Players:FindFirstChild(state.TargetName)
+        local char = LocalPlayer.Character
+        local tchar = target and target.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        local troot = tchar and tchar:FindFirstChild("HumanoidRootPart")
+        if root and troot then
+            root.CFrame = troot.CFrame * CFrame.new(state.OffsetX, state.OffsetY, state.OffsetZ)
+        end
+    end)
+
+    -- ランダムTP
+    RunService.Heartbeat:Connect(function()
+        if not state.RandomEnabled then return end
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if not root then return end
+        local range = state.RandomRange
+        local yRange = state.RandomYRange
+        local x = state.RandomX + (math.random() * 2 - 1) * range
+        local y = state.RandomY + (math.random() * 2 - 1) * yRange
+        local z = state.RandomZ + (math.random() * 2 - 1) * range
+        root.CFrame = CFrame.new(x, y, z)
+    end)
+end)
 
 -- Auto Matchmaking: 試合終了時だけ再キュー（常時ポーリングなし）
 do
@@ -1698,7 +2166,7 @@ end
 
 local silentAimSection = Instance.new("Frame")
 silentAimSection.Size = UDim2.new(0.92, 0, 0, 400)
-silentAimSection.Position = UDim2.new(0.04, 0, 0, 1915)
+silentAimSection.Position = UDim2.new(0.04, 0, 0, 2845)
 silentAimSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 silentAimSection.BorderSizePixel = 0
 silentAimSection.Parent = mainScroll
@@ -3463,7 +3931,7 @@ _G.__PHLagLocalPlayer = _G.__PHLagPlayers.LocalPlayer
 
 _G.__PHLagSection = Instance.new("Frame")
 _G.__PHLagSection.Size = UDim2.new(0.92, 0, 0, 185)
-_G.__PHLagSection.Position = UDim2.new(0.04, 0, 0, 705)
+_G.__PHLagSection.Position = UDim2.new(0.04, 0, 0, 940)
 _G.__PHLagSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 _G.__PHLagSection.BorderSizePixel = 0
 _G.__PHLagSection.Parent = mainScroll
@@ -3622,7 +4090,7 @@ end)
 -- ==========================================
 _G.__PHAbilitiesSection = Instance.new("Frame")
 _G.__PHAbilitiesSection.Size = UDim2.new(0.92, 0, 0, 470)
-_G.__PHAbilitiesSection.Position = UDim2.new(0.04, 0, 0, 905)
+_G.__PHAbilitiesSection.Position = UDim2.new(0.04, 0, 0, 1140)
 _G.__PHAbilitiesSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 _G.__PHAbilitiesSection.BorderSizePixel = 0
 _G.__PHAbilitiesSection.Parent = mainScroll
@@ -4187,6 +4655,7 @@ end
 RageKillEnabled = false
 RageKillMode = "GUN"
 SlowKillEnabled = false
+SlowKillDelay = 0.1
 AutoEquipEnabled = false
 
 -- Rage Kill target-lock state (kept in _G to avoid local-register pressure).
@@ -4214,6 +4683,17 @@ Config_gatherSettingsData = function()
 		spinSpeed = _G.__PrivateHubSpinState.Speed,
 		matchAutoQueue = _G.__PrivateHubMatchState.Enabled,
 		matchMode = _G.__PrivateHubMatchState.Mode,
+		followTeleport = _G.__PrivateHubTeleportState and _G.__PrivateHubTeleportState.FollowEnabled == true,
+		randomTeleport = _G.__PrivateHubTeleportState and _G.__PrivateHubTeleportState.RandomEnabled == true,
+		teleportTargetName = _G.__PrivateHubTeleportState and _G.__PrivateHubTeleportState.TargetName or "",
+		teleportOffsetX = _G.__PrivateHubTeleportState and _G.__PrivateHubTeleportState.OffsetX or 0,
+		teleportOffsetY = _G.__PrivateHubTeleportState and _G.__PrivateHubTeleportState.OffsetY or 3,
+		teleportOffsetZ = _G.__PrivateHubTeleportState and _G.__PrivateHubTeleportState.OffsetZ or 0,
+		teleportRandomX = _G.__PrivateHubTeleportState and _G.__PrivateHubTeleportState.RandomX or 0,
+		teleportRandomY = _G.__PrivateHubTeleportState and _G.__PrivateHubTeleportState.RandomY or 50,
+		teleportRandomZ = _G.__PrivateHubTeleportState and _G.__PrivateHubTeleportState.RandomZ or 0,
+		teleportRandomRange = _G.__PrivateHubTeleportState and _G.__PrivateHubTeleportState.RandomRange or 500,
+		teleportRandomYRange = _G.__PrivateHubTeleportState and _G.__PrivateHubTeleportState.RandomYRange or 100,
 		autoVoteMap = _G.__PrivateHubAutoVoteMapState.Enabled == true,
 		autoVoteMapRank1 = _G.__PrivateHubAutoVoteMapState.Rank1 or "Barn",
 		autoVoteMapRank2 = _G.__PrivateHubAutoVoteMapState.Rank2 or "None",
@@ -4369,6 +4849,9 @@ Config_loadConfigByName = function(Config_cName)
 				if Config_data.autoVoteMap ~= nil and CheckboxSetters["AutoVoteMap"] then
 					CheckboxSetters["AutoVoteMap"](Config_data.autoVoteMap, true)
 				end
+				if _G.__PrivateHubTeleportApplyConfig then
+					_G.__PrivateHubTeleportApplyConfig(Config_data)
+				end
 
 				if Config_data.silentAim ~= nil and CheckboxSetters["SilentAim"] then CheckboxSetters["SilentAim"](Config_data.silentAim, true) end
 				if Config_data.aimbot ~= nil and CheckboxSetters["Aimbot"] then CheckboxSetters["Aimbot"](Config_data.aimbot, true) end
@@ -4511,6 +4994,9 @@ Config_loadConfigByName = function(Config_cName)
 				end
                 if Config_data.rageKillTargetEnabled ~= nil then
                     _G.__PrivateHubRageTargetState.Enabled = Config_data.rageKillTargetEnabled == true
+                    if CheckboxSetters["RageKillTarget"] then
+                        CheckboxSetters["RageKillTarget"](_G.__PrivateHubRageTargetState.Enabled, true)
+                    end
                 end
                 if Config_data.rageKillTargetName ~= nil then
                     _G.__PrivateHubRageTargetState.TargetName = tostring(Config_data.rageKillTargetName or "")
@@ -4523,6 +5009,12 @@ Config_loadConfigByName = function(Config_cName)
                 end
 
                 if Config_data.slowKill ~= nil and CheckboxSetters["SlowKill"] then CheckboxSetters["SlowKill"](Config_data.slowKill, true) end
+                if Config_data.slowKillDelay ~= nil then
+                    SlowKillDelay = math.clamp(tonumber(Config_data.slowKillDelay) or 0.1, 0.1, 1.0)
+                    _G.__PrivateHubSlowKillState = _G.__PrivateHubSlowKillState or {}
+                    _G.__PrivateHubSlowKillState.Delay = SlowKillDelay
+                    if SliderSetters["SlowKillDelay"] then SliderSetters["SlowKillDelay"](SlowKillDelay) end
+                end
 				if Config_data.autoEquip ~= nil and CheckboxSetters["AutoEquip"] then CheckboxSetters["AutoEquip"](Config_data.autoEquip, true) end
 				if Config_data.antiLag ~= nil and CheckboxSetters["AntiLag"] then CheckboxSetters["AntiLag"](Config_data.antiLag, true) end
 
@@ -4668,7 +5160,10 @@ centerStroke.Parent = centerKillLabel
 
 -- 2. 機能状態フラグ変数
 local SLOW_KILL_RANGE = 1000
-local SLOW_COOLDOWN = 0.1
+-- Slow Kill interval is config-backed and controlled by the UI slider (0.1s - 1.0s).
+_G.__PrivateHubSlowKillState = _G.__PrivateHubSlowKillState or {Delay = SlowKillDelay}
+SlowKillDelay = math.clamp(tonumber(_G.__PrivateHubSlowKillState.Delay) or 0.1, 0.1, 1.0)
+_G.__PrivateHubSlowKillState.Delay = SlowKillDelay
 local EQUIP_CHECK_RATE = 0.1
 
 local isRoundActive = false
@@ -4884,7 +5379,7 @@ end)
 -- [[ ループ3: Slow All Kill メイン処理 ]]
 task.spawn(function()
 	while true do
-		task.wait(SLOW_COOLDOWN)
+		task.wait(math.clamp(tonumber(_G.__PrivateHubSlowKillState and _G.__PrivateHubSlowKillState.Delay) or SlowKillDelay or 0.1, 0.1, 1.0))
 		if not SlowKillEnabled then continue end
 
 		local char = LocalPlayer.Character
@@ -4971,15 +5466,15 @@ end)
 -- 5. Main タブに Combat Section（トグル枠）を新しく追加
 local combatSection = Instance.new("Frame")
 combatSection.Name = "CombatSection"
-combatSection.Size = UDim2.new(0.92, 0, 0, 500)
-combatSection.Position = UDim2.new(0.04, 0, 0, 1395)
+combatSection.Size = UDim2.new(0.92, 0, 0, 555)
+combatSection.Position = UDim2.new(0.04, 0, 0, 2270)
 combatSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 combatSection.BorderSizePixel = 0
 combatSection.Parent = mainScroll
 Instance.new("UICorner", combatSection).CornerRadius = UDim.new(0, 6)
 addStroke(combatSection, Color3.fromRGB(40, 40, 45), 0, 1)
 
-mainScroll.CanvasSize = UDim2.new(0, 0, 0, 2340)
+mainScroll.CanvasSize = UDim2.new(0, 0, 0, 3295)
 
 local combatTitle = Instance.new("TextLabel")
 combatTitle.Name = "DynamicText"
@@ -5234,6 +5729,21 @@ CheckboxSetters["SlowKill"] = createCheckboxToggle(combatSection, "Slow Kill (Te
 	SlowKillEnabled = enabled
 end)
 
+-- Slow Kill interval: 0.1s - 1.0s, saved in CONFIG.
+SliderSetters["SlowKillDelay"] = createSliderRow(
+    combatSection,
+    "Slow Kill Speed",
+    0.1,
+    1.0,
+    SlowKillDelay,
+    444,
+    function(value)
+        SlowKillDelay = math.clamp(tonumber(value) or 0.1, 0.1, 1.0)
+        _G.__PrivateHubSlowKillState = _G.__PrivateHubSlowKillState or {}
+        _G.__PrivateHubSlowKillState.Delay = SlowKillDelay
+    end
+)
+
 CheckboxSetters["AutoEquip"] = createCheckboxToggle(combatSection, "Auto Equip Gun", 408, function(enabled)
 	AutoEquipEnabled = enabled
 end)
@@ -5255,6 +5765,7 @@ if gatherSettingsData then
             data.rageKillTargetMarkerColor = Config_colorToHex(_G.__PrivateHubRageTargetState.TargetMarkerColor or Color3.fromRGB(255, 70, 70))
             data.rageKillTextColor = Config_colorToHex(_G.__PrivateHubRageTargetState.TextColor or Color3.fromRGB(255, 50, 50))
 			data.slowKill = SlowKillEnabled
+            data.slowKillDelay = SlowKillDelay
 			data.autoEquip = AutoEquipEnabled
 			data.walkSpeedEnabled = ModSpeedEnabled -- 設定保存にも追加
 			return HttpService:JSONEncode(data)
@@ -5286,11 +5797,17 @@ if loadConfigByName then
 					end
                     if data.rageKillTargetEnabled ~= nil then
                         _G.__PrivateHubRageTargetState.Enabled = data.rageKillTargetEnabled == true
+                        if CheckboxSetters["RageKillTarget"] then
+                            CheckboxSetters["RageKillTarget"](_G.__PrivateHubRageTargetState.Enabled, true)
+                        end
                     end
                     if data.rageKillTargetName ~= nil then
                         _G.__PrivateHubRageTargetState.TargetName = tostring(data.rageKillTargetName or "")
                         if _G.__PrivateHubRageTargetBtn then
                             _G.__PrivateHubRageTargetBtn.Text = "Target: " .. (_G.__PrivateHubRageTargetState.TargetName ~= "" and _G.__PrivateHubRageTargetState.TargetName or "Select player...")
+                        end
+                        if _G.__PrivateHubRageTargetState.Enabled then
+                            updateRageTargetMarker()
                         end
                     end
                     if data.rageKillTargetMarkerColor then
@@ -5304,6 +5821,12 @@ if loadConfigByName then
                     if data.slowKill ~= nil and CheckboxSetters["SlowKill"] then 
 						CheckboxSetters["SlowKill"](data.slowKill, true) 
 					end
+                    if data.slowKillDelay ~= nil then
+                        SlowKillDelay = math.clamp(tonumber(data.slowKillDelay) or 0.1, 0.1, 1.0)
+                        _G.__PrivateHubSlowKillState = _G.__PrivateHubSlowKillState or {}
+                        _G.__PrivateHubSlowKillState.Delay = SlowKillDelay
+                        if SliderSetters["SlowKillDelay"] then SliderSetters["SlowKillDelay"](SlowKillDelay) end
+                    end
 					if data.autoEquip ~= nil and CheckboxSetters["AutoEquip"] then 
 						CheckboxSetters["AutoEquip"](data.autoEquip, true) 
 					end
