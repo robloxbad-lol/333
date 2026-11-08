@@ -2619,12 +2619,12 @@ local visualsScroll = Instance.new("ScrollingFrame")
 visualsScroll.Size = UDim2.new(1, 0, 1, 0)
 visualsScroll.BackgroundTransparency = 1
 visualsScroll.BorderSizePixel = 0
-visualsScroll.CanvasSize = UDim2.new(0, 0, 0, 565)
+visualsScroll.CanvasSize = UDim2.new(0, 0, 0, 610)
 visualsScroll.ScrollBarThickness = 2
 visualsScroll.Parent = visualsPage
 
 local espSection = Instance.new("Frame")
-espSection.Size = UDim2.new(0.92, 0, 0, 315)
+espSection.Size = UDim2.new(0.92, 0, 0, 350)
 espSection.Position = UDim2.new(0.04, 0, 0, 15)
 espSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 espSection.BorderSizePixel = 0
@@ -2680,6 +2680,13 @@ end)
 -- Hitbox Color（Private Hub 共通パレット）
 local hitboxColorBtn = createColorPreviewRowInParent(espSection, "Hitbox Color", Hitbox_Color, 270)
 ColorBtnSetters["HitboxColor"] = hitboxColorBtn
+
+-- Player Information toggle (Visuals > Team ESP System)
+CheckboxSetters["PlayerInformation"] = createCheckboxToggle(espSection, "Player Information", 305, function(enabled)
+    if _G.__PHPlayerInfo and _G.__PHPlayerInfo.SetEnabled then
+        _G.__PHPlayerInfo.SetEnabled(enabled)
+    end
+end)
 
 -- Server Desync Visualizer runtime
 function ServerDesync_ClearFake()
@@ -2831,7 +2838,7 @@ end
 local appearanceSection = Instance.new("Frame")
 appearanceSection.Name = "AppearanceSection"
 appearanceSection.Size = UDim2.new(0.92, 0, 0, 195)
-appearanceSection.Position = UDim2.new(0.04, 0, 0, 345)
+appearanceSection.Position = UDim2.new(0.04, 0, 0, 380)
 appearanceSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 appearanceSection.BorderSizePixel = 0
 appearanceSection.Parent = visualsScroll
@@ -2881,6 +2888,386 @@ SliderSetters["Appearance_WinStreakValue"] = createSliderRow(
         end
     end
 )
+
+--==================================================
+-- Player Information panel (draggable / Private Hub style)
+-- Own profile: visible only while the main Private Hub is open.
+-- Other players: visible on cursor hover even while the main hub is closed.
+--==================================================
+do
+    local state = _G.__PHPlayerInfo or {Enabled = false}
+    _G.__PHPlayerInfo = state
+    state.Enabled = state.Enabled == true
+
+    local gui = playerGui:FindFirstChild("PrivateHubPlayerInformation")
+    if gui then gui:Destroy() end
+    gui = Instance.new("ScreenGui")
+    gui.Name = "PrivateHubPlayerInformation"
+    gui.ResetOnSpawn = false
+    gui.IgnoreGuiInset = true
+    gui.DisplayOrder = 80
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    gui.Parent = playerGui
+
+    local card = Instance.new("Frame")
+    card.Name = "PlayerInfoCard"
+    card.Size = UDim2.new(0, 430, 0, 318)
+    card.Position = state.Position or UDim2.new(1, -450, 0, 145)
+    state.Position = card.Position
+    card.BackgroundColor3 = Color3.fromRGB(13, 13, 17)
+    card.BackgroundTransparency = 0.035
+    card.BorderSizePixel = 0
+    card.Visible = false
+    card.ZIndex = 80
+    card.Parent = gui
+    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 9)
+    local cardStroke = addStroke(card, Color3.fromRGB(210, 140, 180), 0.12, 1.4)
+
+    local header = Instance.new("Frame")
+    header.Name = "DragHeader"
+    header.Size = UDim2.new(1, 0, 0, 36)
+    header.BackgroundColor3 = Color3.fromRGB(25, 20, 28)
+    header.BorderSizePixel = 0
+    header.ZIndex = 81
+    header.Parent = card
+    Instance.new("UICorner", header).CornerRadius = UDim.new(0, 8)
+
+    local accent = Instance.new("Frame")
+    accent.Size = UDim2.new(0, 3, 1, -12)
+    accent.Position = UDim2.new(0, 8, 0, 6)
+    accent.BackgroundColor3 = Color3.fromRGB(210, 140, 180)
+    accent.BorderSizePixel = 0
+    accent.ZIndex = 82
+    accent.Parent = header
+    Instance.new("UICorner", accent).CornerRadius = UDim.new(0, 2)
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -25, 1, 0)
+    title.Position = UDim2.new(0, 18, 0, 0)
+    title.BackgroundTransparency = 1
+    title.Font = FONT_BOLD
+    title.Text = "PLAYER INFORMATION  /  LIVE"
+    title.TextColor3 = Color3.fromRGB(245, 225, 240)
+    title.TextSize = 12
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.ZIndex = 82
+    title.Parent = header
+
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Size = UDim2.new(1, -24, 0, 28)
+    nameLabel.Position = UDim2.new(0, 12, 0, 42)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Font = FONT_BOLD
+    nameLabel.Text = LocalPlayer.DisplayName .. "  (@" .. LocalPlayer.Name .. ")"
+    nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    nameLabel.TextSize = 13
+    nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+    nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+    nameLabel.ZIndex = 81
+    nameLabel.Parent = card
+
+    local divider = Instance.new("Frame")
+    divider.Size = UDim2.new(1, -24, 0, 1)
+    divider.Position = UDim2.new(0, 12, 0, 74)
+    divider.BackgroundColor3 = Color3.fromRGB(65, 54, 66)
+    divider.BorderSizePixel = 0
+    divider.ZIndex = 81
+    divider.Parent = card
+
+    local details = Instance.new("TextLabel")
+    details.Size = UDim2.new(1, -24, 0, 126)
+    details.Position = UDim2.new(0, 12, 0, 82)
+    details.BackgroundTransparency = 1
+    details.Font = FONT_MONO
+    details.Text = "Loading player data..."
+    details.TextColor3 = Color3.fromRGB(205, 202, 212)
+    details.TextSize = 10
+    details.TextXAlignment = Enum.TextXAlignment.Left
+    details.TextYAlignment = Enum.TextYAlignment.Top
+    details.TextWrapped = false
+    details.ZIndex = 81
+    details.Parent = card
+
+    -- Equipment / ability image cards
+    local function makeImageSlot(x, caption, tint)
+        local slot = Instance.new("Frame")
+        slot.Size = UDim2.new(0, 96, 0, 96)
+        slot.Position = UDim2.new(0, x, 0, 214)
+        slot.BackgroundColor3 = Color3.fromRGB(25, 23, 30)
+        slot.BorderSizePixel = 0
+        slot.ZIndex = 81
+        slot.Parent = card
+        Instance.new("UICorner", slot).CornerRadius = UDim.new(0, 7)
+        local stroke = addStroke(slot, Color3.fromRGB(70, 60, 76), 0.2, 1)
+
+        local image = Instance.new("ImageLabel")
+        image.Name = "ItemImage"
+        image.Size = UDim2.new(0, 54, 0, 54)
+        image.Position = UDim2.new(0.5, -27, 0, 7)
+        image.BackgroundTransparency = 1
+        image.ScaleType = Enum.ScaleType.Fit
+        image.Image = ""
+        image.ZIndex = 82
+        image.Parent = slot
+
+        local label = Instance.new("TextLabel")
+        label.Name = "ItemName"
+        label.Size = UDim2.new(1, -8, 0, 26)
+        label.Position = UDim2.new(0, 4, 1, -30)
+        label.BackgroundTransparency = 1
+        label.Font = FONT_BOLD
+        label.Text = caption .. ": —"
+        label.TextColor3 = tint
+        label.TextSize = 10
+        label.TextTruncate = Enum.TextTruncate.AtEnd
+        label.TextXAlignment = Enum.TextXAlignment.Center
+        label.ZIndex = 82
+        label.Parent = slot
+        return image, label, stroke
+    end
+
+    local gunIcon, gunLabel = makeImageSlot(12, "GUN", Color3.fromRGB(150, 190, 255))
+    local knifeIcon, knifeLabel = makeImageSlot(116, "KNIFE", Color3.fromRGB(255, 160, 175))
+    local abilityIcon, abilityLabel = makeImageSlot(220, "ABILITY 1", Color3.fromRGB(190, 160, 255))
+    local abilityIcon2, abilityLabel2 = makeImageSlot(324, "ABILITY 2", Color3.fromRGB(190, 160, 255))
+
+    -- Build an image -> ability-name lookup from the game's own database.
+    local abilityImageNames = {}
+    pcall(function()
+        local abilityModule = ReplicatedStorage:FindFirstChild("Ability")
+        abilityModule = abilityModule and abilityModule:FindFirstChild("AbilityDatabase")
+        if abilityModule then
+            local database = require(abilityModule)
+            if type(database) == "table" and type(database.GetAll) == "function" then
+                for _, ability in ipairs(database.GetAll()) do
+                    if type(ability) == "table" and ability.Image then
+                        local imageId = tostring(ability.Image)
+                        abilityImageNames[imageId] = tostring(ability.Name or "Ability")
+                        local digits = imageId:match("(%d+)")
+                        if digits then abilityImageNames[digits] = tostring(ability.Name or "Ability") end
+                    end
+                end
+            end
+        end
+    end)
+
+    local function getAttribute(player, key)
+        local value
+        pcall(function() value = player:GetAttribute(key) end)
+        return value
+    end
+
+    local function readValue(player, key, fallback)
+        local value = getAttribute(player, key)
+        if value == nil then return fallback or "—" end
+        return tostring(value)
+    end
+
+    local function getTeam(player)
+        local teamName = "—"
+        pcall(function() if player.Team then teamName = player.Team.Name end end)
+        if teamName == "—" then teamName = readValue(player, "Team", "—") end
+        return teamName
+    end
+
+    local function getWeaponInfo(player, wanted)
+        local foundName, foundImage = "None", ""
+        local containers = {}
+        local backpack = player:FindFirstChildOfClass("Backpack") or player:FindFirstChild("Backpack")
+        if backpack then table.insert(containers, backpack) end
+        if player.Character then table.insert(containers, player.Character) end
+
+        for _, container in ipairs(containers) do
+            for _, item in ipairs(container:GetChildren()) do
+                local equipAnim = getAttribute(item, "EquipAnimation") or getAttribute(item, "equipanimation")
+                if not equipAnim then
+                    pcall(function() equipAnim = item.EquipAnimation or item.equipanimation end)
+                end
+                local anim = tostring(equipAnim or ""):lower()
+                if (wanted == "gun" and anim == "gun_equip") or (wanted == "knife" and anim == "knife_equip") then
+                    local image = ""
+                    pcall(function() if item.TextureId and item.TextureId ~= "" then image = tostring(item.TextureId) end end)
+                    if image == "" then image = tostring(getAttribute(item, "TextureId") or getAttribute(item, "textureId") or "") end
+                    if image == "" then
+                        local mouseId = getAttribute(item, "MouseId") or getAttribute(item, "mouseId")
+                        if mouseId then image = "rbxassetid://" .. tostring(mouseId) end
+                    end
+                    foundName = item.Name
+                    foundImage = image
+                    break
+                end
+            end
+            if foundName ~= "None" then break end
+        end
+        return foundName, foundImage
+    end
+
+    local function getAbilityInfos(player)
+        local found = {}
+        local seen = {}
+
+        local function addAbility(image)
+            if type(image) ~= "string" or image == "" or seen[image] then return end
+            seen[image] = true
+            local digits = image:match("(%d+)")
+            local name = abilityImageNames[image] or (digits and abilityImageNames[digits]) or "Ability"
+            table.insert(found, {Name = name, Image = image})
+        end
+
+        local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui") or playerGui
+        local leaderboard = pg and pg:FindFirstChild("MatchLeaderboard")
+        if leaderboard then
+            for _, descendant in ipairs(leaderboard:GetDescendants()) do
+                if descendant.Name == "DisplayName" and descendant:IsA("TextLabel") then
+                    local cleanText = descendant.Text:gsub("<[^<>]+>", ""):gsub("^%s*(.-)%s*$", "%1")
+                    local matches = cleanText == player.Name or cleanText == player.DisplayName
+                        or descendant.Text:find(player.Name, 1, true) ~= nil
+                    if matches then
+                        local node = descendant.Parent
+                        local abilityFrame
+                        for _ = 1, 6 do
+                            if not node then break end
+                            abilityFrame = node:FindFirstChild("AbilityFrame", true)
+                            if abilityFrame then break end
+                            node = node.Parent
+                        end
+                        if abilityFrame then
+                            for _, item in ipairs(abilityFrame:GetDescendants()) do
+                                if (item:IsA("ImageLabel") or item:IsA("ImageButton")) and item.Visible then
+                                    addAbility(item.Image)
+                                    if #found >= 2 then break end
+                                end
+                            end
+                        end
+                        if #found >= 2 then break end
+                    end
+                end
+            end
+        end
+
+        -- The local AbilitySlot is a fallback when the leaderboard has no entry.
+        if #found < 2 and player == LocalPlayer then
+            pcall(function()
+                local abilitySlot = pg:FindFirstChild("AbilitySlot")
+                if abilitySlot then
+                    for _, item in ipairs(abilitySlot:GetDescendants()) do
+                        if (item:IsA("ImageLabel") or item:IsA("ImageButton")) and item.Visible then
+                            addAbility(item.Image)
+                            if #found >= 2 then break end
+                        end
+                    end
+                end
+            end)
+        end
+        return found
+    end
+
+    local dragging, dragStart, startPosition = false, nil, nil
+    header.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPosition = card.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            end)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if not dragging then return end
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            local delta = input.Position - dragStart
+            card.Position = UDim2.new(startPosition.X.Scale, startPosition.X.Offset + delta.X, startPosition.Y.Scale, startPosition.Y.Offset + delta.Y)
+            state.Position = card.Position
+        end
+    end)
+
+    state.SetEnabled = function(enabled)
+        state.Enabled = enabled == true
+        if not state.Enabled then card.Visible = false end
+    end
+
+    if CheckboxSetters["PlayerInformation"] then
+        CheckboxSetters["PlayerInformation"](state.Enabled, true)
+    end
+
+    local elapsed = 0
+    local lastPlayer, lastRefresh = nil, 0
+    RunService.RenderStepped:Connect(function(dt)
+        elapsed = elapsed + dt
+        if elapsed < 0.15 then return end
+        elapsed = 0
+        if not state.Enabled then
+            card.Visible = false
+            return
+        end
+
+        local hubOpen = _G.__PrivateHubGuiOpenState == true
+        local selected = nil
+        local nearestDistance = 105
+        local camera = Workspace.CurrentCamera
+        if camera then
+            local mousePos = UserInputService:GetMouseLocation()
+            for _, candidate in ipairs(Players:GetPlayers()) do
+                if candidate ~= LocalPlayer and candidate.Character then
+                    local root = candidate.Character:FindFirstChild("HumanoidRootPart") or candidate.Character:FindFirstChild("Head")
+                    if root then
+                        local screenPos, onScreen = camera:WorldToScreenPoint(root.Position)
+                        if onScreen and screenPos.Z > 0 then
+                            local distance = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                            if distance < nearestDistance then
+                                nearestDistance = distance
+                                selected = candidate
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        -- When no other player is hovered, show self only while the hub is open.
+        if not selected and hubOpen then selected = LocalPlayer end
+        card.Visible = selected ~= nil
+        if not selected then
+            lastPlayer = nil
+            return
+        end
+
+        local now = os.clock()
+        if selected == lastPlayer and now - lastRefresh < 0.45 then return end
+        lastPlayer, lastRefresh = selected, now
+
+        nameLabel.Text = (selected.DisplayName or selected.Name) .. "  (@" .. selected.Name .. ")"
+        details.Text = table.concat({
+            "USER ID      " .. tostring(selected.UserId),
+            "PLATFORM     " .. readValue(selected, "Platform", "Unknown"),
+            "COUNTRY      " .. readValue(selected, "CountryCode", "Unknown"),
+            "TEAM         " .. getTeam(selected),
+            "WINS         " .. readValue(selected, "Wins"),
+            "WIN STREAK   " .. readValue(selected, "WinStreak"),
+            "BEST STREAK  " .. readValue(selected, "BestWinStreak"),
+            "SEASON LEVEL " .. readValue(selected, "SeasonLevel"),
+            "GAMEMODE     " .. readValue(selected, "Gamemode"),
+            "CAREER KILLS " .. readValue(selected, "CareerKills")
+        }, "\n")
+
+        local gunName, gunImage = getWeaponInfo(selected, "gun")
+        local knifeName, knifeImage = getWeaponInfo(selected, "knife")
+        local abilities = getAbilityInfos(selected)
+        gunIcon.Image = gunImage or ""
+        gunLabel.Text = "GUN: " .. tostring(gunName)
+        knifeIcon.Image = knifeImage or ""
+        knifeLabel.Text = "KNIFE: " .. tostring(knifeName)
+        abilityIcon.Image = abilities[1] and abilities[1].Image or ""
+        abilityLabel.Text = "ABILITY 1: " .. (abilities[1] and tostring(abilities[1].Name) or "None")
+        abilityIcon2.Image = abilities[2] and abilities[2].Image or ""
+        abilityLabel2.Text = "ABILITY 2: " .. (abilities[2] and tostring(abilities[2].Name) or "None")
+
+        local themeColor = (_G.__PHAccentColorBtn and _G.__PHAccentColorBtn.BackgroundColor3) or Color3.fromRGB(210, 140, 180)
+        accent.BackgroundColor3 = themeColor
+        cardStroke.Color = themeColor
+    end)
+end
 
 -- 統合ESP描画＆ロジック (Workspace Match & Team1/Team2 Filter)
 local playerBoxes = {}
@@ -5108,6 +5495,11 @@ Config_gatherSettingsData = function()
 		fovFilled = FOV_Filled,
 		autoShot = _G.__PrivateHubAutoShotState.Enabled == true,
 		autoShotCooldown = _G.__PrivateHubAutoShotState.Cooldown or 0.5,
+		playerInfoEnabled = _G.__PHPlayerInfo and _G.__PHPlayerInfo.Enabled == true or false,
+        playerInfoXScale = _G.__PHPlayerInfo and _G.__PHPlayerInfo.Position and _G.__PHPlayerInfo.Position.X.Scale or 1,
+        playerInfoXOffset = _G.__PHPlayerInfo and _G.__PHPlayerInfo.Position and _G.__PHPlayerInfo.Position.X.Offset or -305,
+        playerInfoYScale = _G.__PHPlayerInfo and _G.__PHPlayerInfo.Position and _G.__PHPlayerInfo.Position.Y.Scale or 0,
+        playerInfoYOffset = _G.__PHPlayerInfo and _G.__PHPlayerInfo.Position and _G.__PHPlayerInfo.Position.Y.Offset or 145,
 		mvsdEspEnabled = MVSD_ESP_Enabled,
 		mvsdEspColor = Config_colorToHex(espColorBtn.BackgroundColor3),
 		serverDesyncEnabled = ServerDesync_Enabled,
@@ -5272,6 +5664,20 @@ Config_loadConfigByName = function(Config_cName)
 
 				-- Team ESP 読み込み
 				if Config_data.mvsdEspEnabled ~= nil and CheckboxSetters["MVSD_ESP"] then CheckboxSetters["MVSD_ESP"](Config_data.mvsdEspEnabled, true) end
+                if _G.__PHPlayerInfo and Config_data.playerInfoXOffset ~= nil then
+                    _G.__PHPlayerInfo.Position = UDim2.new(
+                        tonumber(Config_data.playerInfoXScale) or 1,
+                        tonumber(Config_data.playerInfoXOffset) or -305,
+                        tonumber(Config_data.playerInfoYScale) or 0,
+                        tonumber(Config_data.playerInfoYOffset) or 145
+                    )
+                    local panel = playerGui:FindFirstChild("PrivateHubPlayerInformation")
+                    local card = panel and panel:FindFirstChild("PlayerInfoCard")
+                    if card then card.Position = _G.__PHPlayerInfo.Position end
+                end
+                if Config_data.playerInfoEnabled ~= nil and CheckboxSetters["PlayerInformation"] then
+                    CheckboxSetters["PlayerInformation"](Config_data.playerInfoEnabled, true)
+                end
 				if Config_data.mvsdEspColor then 
 					MVSD_ESP_Color = Config_hexToColor(Config_data.mvsdEspColor)
 					espColorBtn.BackgroundColor3 = MVSD_ESP_Color
@@ -5323,8 +5729,10 @@ Config_loadConfigByName = function(Config_cName)
 					_G.__PHCrosshairColorBtn.BackgroundColor3 = customCrosshairColor
 				end
 				if Config_data.watermarkText then
+					-- Updating the textbox fires GetPropertyChangedSignal("Text"),
+					-- which already syncs CursorText when the GUI thread has access.
+					-- Avoid touching CursorText directly during config autoload.
 					_G.__PHWatermarkBox.Text = Config_data.watermarkText
-					CursorText.Text = Config_data.watermarkText
 				end
 				if Config_data.effectSelected and _G.__PHEffectState then
 					_G.__PHEffectState.Selected = Config_data.effectSelected
