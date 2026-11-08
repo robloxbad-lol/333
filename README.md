@@ -846,7 +846,7 @@ contentArea.Parent = containerArea
 Instance.new("UICorner", contentArea).CornerRadius = UDim.new(0, 6)
 addStroke(contentArea, Color3.fromRGB(30, 30, 35), 0, 1)
 
-local tabNames = {"Main", "Visuals", "Misc", "Settings"}
+local tabNames = {"Main", "Visuals", "Misc", "Settings", "Character"}
 local tabButtons = {}
 local tabPages = {}
 local currentActiveTab = "Main"
@@ -1455,6 +1455,309 @@ local function createColorPreviewRowInParent(parent, name, defaultColor, yPos)
 	addStroke(btn, Color3.fromRGB(80, 80, 85), 0.5, 1)
 
 	return btn
+end
+
+--------------------------------------------------
+-- Character > Emote
+--------------------------------------------------
+do
+    local emotePage = tabPages["Character"]
+    local emoteScroll = Instance.new("ScrollingFrame")
+    emoteScroll.Name = "CharacterScroll"
+    emoteScroll.Size = UDim2.new(1, 0, 1, 0)
+    emoteScroll.BackgroundTransparency = 1
+    emoteScroll.BorderSizePixel = 0
+    emoteScroll.CanvasSize = UDim2.new(0, 0, 0, 330)
+    emoteScroll.ScrollBarThickness = 2
+    emoteScroll.Parent = emotePage
+
+    local emoteSection = Instance.new("Frame")
+    emoteSection.Name = "EmoteSection"
+    emoteSection.Size = UDim2.new(0.94, 0, 0, 310)
+    emoteSection.Position = UDim2.new(0.03, 0, 0, 12)
+    emoteSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
+    emoteSection.BorderSizePixel = 0
+    emoteSection.Parent = emoteScroll
+    Instance.new("UICorner", emoteSection).CornerRadius = UDim.new(0, 6)
+    addStroke(emoteSection, Color3.fromRGB(40, 40, 45), 0, 1)
+
+    local emoteTitle = Instance.new("TextLabel")
+    emoteTitle.Name = "DynamicText"
+    emoteTitle.Size = UDim2.new(1, -20, 0, 30)
+    emoteTitle.Position = UDim2.new(0, 10, 0, 5)
+    emoteTitle.BackgroundTransparency = 1
+    emoteTitle.Font = FONT_BOLD
+    emoteTitle.Text = "EMOTE"
+    emoteTitle.TextColor3 = Color3.fromRGB(245, 220, 230)
+    emoteTitle.TextSize = 14
+    emoteTitle.TextXAlignment = Enum.TextXAlignment.Left
+    emoteTitle.Parent = emoteSection
+
+    local emoteList = {
+        {"scenario", "rbxassetid://119569809164060"},
+        {"orange", "rbxassetid://118658421573099"},
+        {"Billy", "rbxassetid://137761874857242"},
+        {"yokobaundo", "rbxassetid://138185127638200"},
+        {"Mesmerizer", "rbxassetid://119261836151086"},
+        {"explosion", "rbxassetid://117768785847200"},
+        {"Headless", "rbxassetid://115812995528771"},
+        {"Floss dance", "rbxassetid://10714340543"},
+        {"L", "rbxassetid://75460729737525"},
+        {"yokoyure", "rbxassetid://92663868426889"},
+        {"ybjump", "rbxassetid://15609995579"}
+    }
+
+    local emoteState = _G.__PrivateHubEmoteState or {}
+    _G.__PrivateHubEmoteState = emoteState
+    emoteState.SelectedId = emoteState.SelectedId or emoteList[1][2]
+    emoteState.SelectedName = emoteState.SelectedName or emoteList[1][1]
+    emoteState.ManualEnabled = emoteState.ManualEnabled == true
+    emoteState.AutoEnabled = emoteState.AutoEnabled == true
+    emoteState.Track = nil
+
+    local function stopEmoteTrack()
+        if emoteState.Track then
+            pcall(function() emoteState.Track:Stop(0.15) end)
+            pcall(function() emoteState.Track:Destroy() end)
+            emoteState.Track = nil
+        end
+    end
+
+    local function playEmote(animationId, looped)
+        local character = LocalPlayer.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        if not humanoid then return false end
+
+        local animator = humanoid:FindFirstChildOfClass("Animator")
+        if not animator then
+            animator = Instance.new("Animator")
+            animator.Parent = humanoid
+        end
+
+        stopEmoteTrack()
+        local animation = Instance.new("Animation")
+        animation.AnimationId = animationId
+        local ok, track = pcall(function()
+            return animator:LoadAnimation(animation)
+        end)
+        animation:Destroy()
+
+        if not ok or not track then
+            return false
+        end
+
+        emoteState.Track = track
+        track.Looped = looped == true
+        local played = pcall(function() track:Play(0.15) end)
+        if not played then
+            stopEmoteTrack()
+            return false
+        end
+        return true
+    end
+
+    local selectedLabel = Instance.new("TextLabel")
+    selectedLabel.Name = "DynamicText"
+    selectedLabel.Size = UDim2.new(1, -20, 0, 20)
+    selectedLabel.Position = UDim2.new(0, 10, 0, 43)
+    selectedLabel.BackgroundTransparency = 1
+    selectedLabel.Font = FONT_MAIN
+    selectedLabel.Text = "Select Emote"
+    selectedLabel.TextColor3 = Color3.fromRGB(200, 200, 205)
+    selectedLabel.TextSize = 12
+    selectedLabel.TextXAlignment = Enum.TextXAlignment.Left
+    selectedLabel.Parent = emoteSection
+
+    local dropdownButton = Instance.new("TextButton")
+    dropdownButton.Name = "EmoteDropdown"
+    dropdownButton.Size = UDim2.new(1, -20, 0, 34)
+    dropdownButton.Position = UDim2.new(0, 10, 0, 66)
+    dropdownButton.BackgroundColor3 = Color3.fromRGB(25, 25, 29)
+    dropdownButton.BorderSizePixel = 0
+    dropdownButton.Font = FONT_MAIN
+    dropdownButton.Text = tostring(emoteState.SelectedName) .. "  ▼"
+    dropdownButton.TextColor3 = Color3.fromRGB(235, 235, 240)
+    dropdownButton.TextSize = 12
+    dropdownButton.Parent = emoteSection
+    Instance.new("UICorner", dropdownButton).CornerRadius = UDim.new(0, 4)
+    addStroke(dropdownButton, Color3.fromRGB(65, 65, 72), 0.2, 1)
+
+    local dropdownList = Instance.new("ScrollingFrame")
+    dropdownList.Name = "EmoteOptions"
+    dropdownList.Size = UDim2.new(1, -20, 0, 0)
+    dropdownList.Position = UDim2.new(0, 10, 0, 103)
+    dropdownList.BackgroundColor3 = Color3.fromRGB(20, 20, 23)
+    dropdownList.BorderSizePixel = 0
+    dropdownList.ScrollBarThickness = 3
+    dropdownList.CanvasSize = UDim2.new(0, 0, 0, #emoteList * 30)
+    dropdownList.Visible = false
+    dropdownList.ZIndex = 20
+    dropdownList.Parent = emoteSection
+    Instance.new("UICorner", dropdownList).CornerRadius = UDim.new(0, 4)
+    addStroke(dropdownList, Color3.fromRGB(65, 65, 72), 0.15, 1)
+
+    local dropdownLayout = Instance.new("UIListLayout")
+    dropdownLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    dropdownLayout.Padding = UDim.new(0, 1)
+    dropdownLayout.Parent = dropdownList
+
+    local function closeDropdown()
+        dropdownList.Visible = false
+        dropdownList.Size = UDim2.new(1, -20, 0, 0)
+    end
+
+    dropdownButton.MouseButton1Click:Connect(function()
+        local opening = not dropdownList.Visible
+        dropdownList.Visible = opening
+        dropdownList.Size = opening and UDim2.new(1, -20, 0, 125) or UDim2.new(1, -20, 0, 0)
+    end)
+
+    for index, entry in ipairs(emoteList) do
+        local option = Instance.new("TextButton")
+        option.Name = "EmoteOption" .. tostring(index)
+        option.Size = UDim2.new(1, -4, 0, 29)
+        option.BackgroundColor3 = Color3.fromRGB(29, 29, 33)
+        option.BorderSizePixel = 0
+        option.Font = FONT_MAIN
+        option.Text = entry[1]
+        option.TextColor3 = Color3.fromRGB(220, 220, 225)
+        option.TextSize = 12
+        option.LayoutOrder = index
+        option.ZIndex = 21
+        option.Parent = dropdownList
+        option.MouseButton1Click:Connect(function()
+            emoteState.SelectedName = entry[1]
+            emoteState.SelectedId = entry[2]
+            dropdownButton.Text = entry[1] .. "  ▼"
+            closeDropdown()
+            if emoteState.ManualEnabled then
+                if not playEmote(emoteState.SelectedId, true) then
+                    emoteState.ManualEnabled = false
+                    if CheckboxSetters["EmoteManual"] then
+                        CheckboxSetters["EmoteManual"](false, true)
+                    end
+                    showNotification("Emote", "再生に失敗しました")
+                end
+            end
+        end)
+    end
+
+    local function makeEmoteToggleRow(labelText, y, stateKey, setterKey, onChanged)
+        local row = Instance.new("Frame")
+        row.Size = UDim2.new(1, -20, 0, 30)
+        row.Position = UDim2.new(0, 10, 0, y)
+        row.BackgroundTransparency = 1
+        row.Parent = emoteSection
+
+        local label = Instance.new("TextLabel")
+        label.Name = "DynamicText"
+        label.Size = UDim2.new(0.72, 0, 1, 0)
+        label.BackgroundTransparency = 1
+        label.Font = FONT_MAIN
+        label.Text = labelText
+        label.TextColor3 = Color3.fromRGB(200, 200, 205)
+        label.TextSize = 12
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = row
+
+        local toggle = Instance.new("TextButton")
+        toggle.Size = UDim2.new(0, 54, 0, 23)
+        toggle.Position = UDim2.new(1, -54, 0.5, -11)
+        toggle.BackgroundColor3 = Color3.fromRGB(100, 40, 40)
+        toggle.BorderSizePixel = 0
+        toggle.Font = FONT_BOLD
+        toggle.Text = "OFF"
+        toggle.TextColor3 = Color3.new(1, 1, 1)
+        toggle.TextSize = 11
+        toggle.Parent = row
+        Instance.new("UICorner", toggle).CornerRadius = UDim.new(0, 4)
+        local stroke = addStroke(toggle, Color3.fromRGB(70, 50, 55), 0.1, 1)
+
+        local function setEnabled(enabled, suppressNotify)
+            emoteState[stateKey] = enabled == true
+            toggle.Text = enabled and "ON" or "OFF"
+            toggle.BackgroundColor3 = enabled and Color3.fromRGB(40, 120, 65) or Color3.fromRGB(100, 40, 40)
+            stroke.Color = enabled and Color3.fromRGB(90, 190, 120) or Color3.fromRGB(70, 50, 55)
+            onChanged(enabled == true)
+            if not suppressNotify then
+                showNotification(labelText, enabled and "ON" or "OFF")
+            end
+        end
+
+        toggle.MouseButton1Click:Connect(function()
+            setEnabled(not emoteState[stateKey], false)
+        end)
+        CheckboxSetters[setterKey] = setEnabled
+        setEnabled(emoteState[stateKey], true)
+    end
+
+    makeEmoteToggleRow("Emote", 150, "ManualEnabled", "EmoteManual", function(enabled)
+        if enabled then
+            if not playEmote(emoteState.SelectedId, true) then
+                emoteState.ManualEnabled = false
+                if CheckboxSetters["EmoteManual"] then
+                    CheckboxSetters["EmoteManual"](false, true)
+                end
+                showNotification("Emote", "再生に失敗しました")
+            end
+        else
+            stopEmoteTrack()
+        end
+    end)
+
+    makeEmoteToggleRow("Round Win Auto", 188, "AutoEnabled", "EmoteAuto", function()
+        -- 勝利イベント受信時のみ再生する
+    end)
+
+    local stopButton = Instance.new("TextButton")
+    stopButton.Name = "StopEmote"
+    stopButton.Size = UDim2.new(1, -20, 0, 30)
+    stopButton.Position = UDim2.new(0, 10, 0, 232)
+    stopButton.BackgroundColor3 = Color3.fromRGB(105, 38, 42)
+    stopButton.BorderSizePixel = 0
+    stopButton.Font = FONT_BOLD
+    stopButton.Text = "STOP"
+    stopButton.TextColor3 = Color3.new(1, 1, 1)
+    stopButton.TextSize = 12
+    stopButton.Parent = emoteSection
+    Instance.new("UICorner", stopButton).CornerRadius = UDim.new(0, 4)
+    addStroke(stopButton, Color3.fromRGB(145, 65, 70), 0.15, 1)
+
+    stopButton.MouseButton1Click:Connect(function()
+        stopEmoteTrack()
+        emoteState.ManualEnabled = false
+        emoteState.SelectedId = nil
+        emoteState.SelectedName = nil
+        dropdownButton.Text = "Select Emote  ▼"
+        if CheckboxSetters["EmoteManual"] then
+            CheckboxSetters["EmoteManual"](false, true)
+        end
+        showNotification("Emote", "停止しました")
+    end)
+
+    -- RoundEnded の引数が "Won" のときだけ、選択中のエモートを一度再生。
+    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+    local roundEnded = remotes and remotes:FindFirstChild("OnRoundEnded")
+    if emoteState.RoundConnection then
+        pcall(function() emoteState.RoundConnection:Disconnect() end)
+    end
+    if roundEnded and roundEnded:IsA("RemoteEvent") then
+        emoteState.RoundConnection = roundEnded.OnClientEvent:Connect(function(result)
+            if emoteState.AutoEnabled and result == "Won" and emoteState.SelectedId then
+                playEmote(emoteState.SelectedId, false)
+            end
+        end)
+    end
+
+    if emoteState.CharacterConnection then
+        pcall(function() emoteState.CharacterConnection:Disconnect() end)
+    end
+    emoteState.CharacterConnection = LocalPlayer.CharacterAdded:Connect(function()
+        task.wait(0.8)
+        if emoteState.ManualEnabled and emoteState.SelectedId then
+            playEmote(emoteState.SelectedId, true)
+        end
+    end)
 end
 
 --------------------------------------------------
