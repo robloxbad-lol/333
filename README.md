@@ -171,7 +171,7 @@ local Appearance_WinStreakValue = 999
 local CustomCrosshairEnabled = false
 local CustomCrosshairRainbow = false
 local customCrosshairColor = Color3.fromRGB(170, 0, 255)
-local watermarkTextValue = "asahara.gg"
+local watermarkTextValue = "PRIVATE HUB"
 
 -- World Time 変数
 local WorldTimeEnabled = false
@@ -246,9 +246,10 @@ local function addPadding(parent, leftOffset)
 	return pad
 end
 
-local FONT_MAIN = Enum.Font.GothamMedium
-local FONT_BOLD = Enum.Font.GothamBold
-local FONT_MONO = Enum.Font.RobotoMono
+-- GUI全体のフォントをSourceSansBoldに統一
+local FONT_MAIN = Enum.Font.Arcade
+local FONT_BOLD = Enum.Font.Arcade
+local FONT_MONO = Enum.Font.Arcade
 
 local function playSound(soundIdNum)
 	if soundIdNum and soundIdNum > 0 then
@@ -523,12 +524,116 @@ CursorText.TextColor3 = customCrosshairColor
 CursorText.Font = Enum.Font.Arcade
 CursorText.TextSize = 17 
 CursorText.TextXAlignment = Enum.TextXAlignment.Center
-CursorText.Text = "asahara.gg"
+CursorText.Text = "PRIVATE HUB"
 
 local TextStroke = Instance.new("UIStroke", CursorText)
 TextStroke.Thickness = 1.5
 TextStroke.Color = Color3.fromRGB(0, 0, 0)
 TextStroke.Transparency = 0.05
+
+-- キャラクターの胴体周りを一文字ずつ周回する PRIVATE HUB 表示
+do
+    _G.__PrivateHubWaistOrbit = _G.__PrivateHubWaistOrbit or {}
+    local orbitState = _G.__PrivateHubWaistOrbit
+
+    if orbitState.Connection then
+        pcall(function() orbitState.Connection:Disconnect() end)
+    end
+    if orbitState.Gui then
+        pcall(function() orbitState.Gui:Destroy() end)
+    end
+    if orbitState.LetterGuis then
+        for _, oldGui in ipairs(orbitState.LetterGuis) do
+            pcall(function() oldGui:Destroy() end)
+        end
+    end
+
+    orbitState.LetterGuis = {}
+    orbitState.Letters = {}
+    orbitState.Text = {}
+
+    -- 空白も1枠として残し、PRIVATE と HUB の間隔を作る
+    local displayText = "PRIVATE HUB"
+    for charIndex = 1, #displayText do
+        table.insert(orbitState.Text, string.sub(displayText, charIndex, charIndex))
+    end
+
+    -- HumanoidRootPart基準で胴体中央付近の高さ
+    orbitState.Radius = 1.65
+    orbitState.Height = 0.55
+    orbitState.RotationSpeed = 1.35
+
+    for index, characterText in ipairs(orbitState.Text) do
+        local letterGui = Instance.new("BillboardGui")
+        letterGui.Name = "PrivateHubBodyOrbitLetter" .. tostring(index)
+        letterGui.Size = UDim2.fromOffset(76, 76)
+        letterGui.AlwaysOnTop = false
+        letterGui.LightInfluence = 0
+        letterGui.MaxDistance = 250
+        letterGui.Enabled = false
+        letterGui.Parent = screenGui
+
+        local letter = Instance.new("TextLabel")
+        letter.Name = "OrbitLetter"
+        letter.Size = UDim2.fromScale(1, 1)
+        letter.BackgroundTransparency = 1
+        letter.Text = characterText
+        letter.Font = Enum.Font.Arcade
+        letter.TextSize = 34
+        letter.TextScaled = false
+        letter.TextWrapped = false
+        letter.Rotation = 0
+        letter.TextColor3 = customCrosshairColor
+        letter.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        letter.TextStrokeTransparency = 0.08
+        letter.Parent = letterGui
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Thickness = 1.7
+        stroke.Color = customCrosshairColor
+        stroke.Transparency = 0.12
+        stroke.Parent = letter
+
+        orbitState.LetterGuis[index] = letterGui
+        orbitState.Letters[index] = {
+            Gui = letterGui,
+            Label = letter,
+            Stroke = stroke
+        }
+    end
+
+    orbitState.Connection = RunService.RenderStepped:Connect(function()
+        local character = LocalPlayer.Character
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+        local shouldShow = _G.__PrivateHubGuiOpenState == true and root ~= nil
+
+        if not shouldShow then
+            for _, item in ipairs(orbitState.Letters) do
+                item.Gui.Enabled = false
+            end
+            return
+        end
+
+        local accent = (_G.__PHAccentColorBtn and _G.__PHAccentColorBtn.BackgroundColor3) or customCrosshairColor
+        local timeNow = os.clock()
+        local count = #orbitState.Letters
+
+        for index, item in ipairs(orbitState.Letters) do
+            -- X/Z平面を周回。BillboardGuiがカメラ側を向くため、
+            -- 正面から見ても文字が上下逆さまにならず、常に正立する。
+            local angle = (timeNow * orbitState.RotationSpeed)
+                + ((index - 1) * (math.pi * 2 / count))
+            local x = math.cos(angle) * orbitState.Radius
+            local z = math.sin(angle) * orbitState.Radius
+
+            item.Gui.Adornee = root
+            item.Gui.StudsOffsetWorldSpace = Vector3.new(x, orbitState.Height, z)
+            item.Gui.Enabled = true
+            item.Label.TextColor3 = accent
+            item.Stroke.Color = accent
+        end
+    end)
+end
 
 -- Decorative outer frames disabled: the main frame already has its own UIStroke.
 -- Keeping separate outer frames visible can leave a colored block behind when MainFrame is dragged.
@@ -561,9 +666,14 @@ mainFrame.Parent = screenGui
 local mainFrameStroke = addStroke(mainFrame, Color3.fromRGB(210, 140, 180), 0.5, 1)
 Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 6)
 
+_G.__PrivateHubStartupGuiState = _G.__PrivateHubStartupGuiState or {Enabled = true}
+_G.__PrivateHubStartupGuiState.Enabled = _G.__PrivateHubStartupGuiState.Enabled ~= false
+
 local isGuiOpen = false
+_G.__PrivateHubGuiOpenState = false
 local function setGuiOpen(open)
 	isGuiOpen = open
+    _G.__PrivateHubGuiOpenState = open == true
 	if open then
 		-- Never show the old detached decorative frames.
 		outerGlow.Visible = false
@@ -817,6 +927,8 @@ local ModNoclipEnabled = false
 
 -- Spin Control state (use _G to avoid adding another top-level local register)
 _G.__PrivateHubSpinState = _G.__PrivateHubSpinState or {Enabled = false, Speed = 10}
+_G.__PrivateHubFlyState = _G.__PrivateHubFlyState or {Enabled = false, Speed = 50}
+_G.__PrivateHubFlyState.Speed = math.clamp(tonumber(_G.__PrivateHubFlyState.Speed) or 50, 10, 300)
 
 -- ==========================================
 -- Match / Auto Queue state
@@ -1353,7 +1465,7 @@ local mainScroll = Instance.new("ScrollingFrame")
 mainScroll.Size = UDim2.new(1, 0, 1, 0)
 mainScroll.BackgroundTransparency = 1
 mainScroll.BorderSizePixel = 0
-mainScroll.CanvasSize = UDim2.new(0, 0, 0, 3295)
+mainScroll.CanvasSize = UDim2.new(0, 0, 0, 3385)
 mainScroll.ScrollBarThickness = 4
 mainScroll.ScrollingDirection = Enum.ScrollingDirection.Y
 mainScroll.ScrollingEnabled = true
@@ -1362,7 +1474,7 @@ mainScroll.CanvasPosition = Vector2.new(0, 0)
 mainScroll.Parent = mainPage
 
 local playerSection = Instance.new("Frame")
-playerSection.Size = UDim2.new(0.92, 0, 0, 280) -- Spin Control 分を追加
+playerSection.Size = UDim2.new(0.92, 0, 0, 370) -- FLY controls included
 playerSection.Position = UDim2.new(0.04, 0, 0, 15)
 playerSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 playerSection.BorderSizePixel = 0
@@ -1413,6 +1525,122 @@ SliderSetters["SpinSpeed"] = createSliderRow(playerSection, "Spin Speed", 1, 100
 	_G.__PrivateHubSpinState.Speed = val
 end)
 
+-- FLY Control (Main > Player)
+CheckboxSetters["Fly"] = createCheckboxToggle(playerSection, "FLY", 285, function(enabled)
+    _G.__PrivateHubFlyState.Enabled = enabled == true
+end)
+
+SliderSetters["FlySpeed"] = createSliderRow(
+    playerSection,
+    "FLY Speed",
+    10,
+    300,
+    _G.__PrivateHubFlyState.Speed,
+    320,
+    function(value)
+        _G.__PrivateHubFlyState.Speed = math.clamp(tonumber(value) or 50, 10, 300)
+    end
+)
+
+-- BodyVelocity / BodyGyro are attached only while FLY is enabled.
+do
+    local flyVelocity = nil
+    local flyGyro = nil
+    local flyRoot = nil
+
+    local function clearFlyObjects()
+        if flyVelocity then
+            flyVelocity:Destroy()
+            flyVelocity = nil
+        end
+        if flyGyro then
+            flyGyro:Destroy()
+            flyGyro = nil
+        end
+        flyRoot = nil
+    end
+
+    local function attachFlyObjects(root)
+        if not root or not root.Parent then return false end
+        if flyRoot == root and flyVelocity and flyGyro
+            and flyVelocity.Parent == root and flyGyro.Parent == root then
+            return true
+        end
+
+        clearFlyObjects()
+        flyRoot = root
+
+        flyVelocity = Instance.new("BodyVelocity")
+        flyVelocity.Name = "PrivateHubFlyVelocity"
+        flyVelocity.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+        flyVelocity.P = 1e4
+        flyVelocity.Velocity = Vector3.zero
+        flyVelocity.Parent = root
+
+        flyGyro = Instance.new("BodyGyro")
+        flyGyro.Name = "PrivateHubFlyGyro"
+        flyGyro.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
+        flyGyro.P = 1e4
+        flyGyro.CFrame = root.CFrame
+        flyGyro.Parent = root
+        return true
+    end
+
+    local function setFlyEnabled(enabled)
+        _G.__PrivateHubFlyState.Enabled = enabled == true
+        if not _G.__PrivateHubFlyState.Enabled then
+            clearFlyObjects()
+        end
+    end
+
+    -- Keep the runtime state and the Main-tab toggle synchronized.
+    local originalFlySetter = CheckboxSetters["Fly"]
+    CheckboxSetters["Fly"] = function(enabled, suppressNotify)
+        originalFlySetter(enabled, suppressNotify)
+        setFlyEnabled(enabled)
+    end
+
+    -- FLY is controlled only by its GUI toggle; no F-key shortcut.
+
+    RunService.RenderStepped:Connect(function()
+        if not _G.__PrivateHubFlyState.Enabled then return end
+
+        local character = LocalPlayer.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+        if not root or not humanoid or humanoid.Health <= 0 then
+            clearFlyObjects()
+            return
+        end
+
+        if not attachFlyObjects(root) then return end
+
+        local camera = Workspace.CurrentCamera
+        if not camera then return end
+
+        local direction = Vector3.zero
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+            direction = direction + camera.CFrame.LookVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+            direction = direction - camera.CFrame.LookVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+            direction = direction - camera.CFrame.RightVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+            direction = direction + camera.CFrame.RightVector
+        end
+
+        if direction.Magnitude > 0 then
+            direction = direction.Unit
+        end
+
+        flyVelocity.Velocity = direction * _G.__PrivateHubFlyState.Speed
+        flyGyro.CFrame = camera.CFrame
+    end)
+end
+
 -- Infinite Air Jump
 -- JumpRequest works with keyboard/controller/mobile jump input.
 local infiniteJumpConnection = UserInputService.JumpRequest:Connect(function()
@@ -1432,7 +1660,7 @@ local matchSection = Instance.new("Frame")
 matchSection.Name = "MatchSection"
     matchSection.ClipsDescendants = false
 matchSection.Size = UDim2.new(0.92, 0, 0, 620)
-matchSection.Position = UDim2.new(0.04, 0, 0, 305)
+matchSection.Position = UDim2.new(0.04, 0, 0, 395)
 matchSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 matchSection.BorderSizePixel = 0
 matchSection.Parent = mainScroll
@@ -1927,9 +2155,119 @@ task.spawn(function()
     }
 
     local state = _G.__PrivateHubTeleportState
+    state.RandomKey = tostring(state.RandomKey or "G")
+
+    -- Random TP中はローカル操作用クローンをカメラ対象にする。
+    -- 本体は従来どおりランダムTP、クローンは独立してWASD操作する。
+    _G.__PHRandomCloneStop = function()
+        if _G.__PHRandomCloneRenderConn then
+            pcall(function() _G.__PHRandomCloneRenderConn:Disconnect() end)
+            _G.__PHRandomCloneRenderConn = nil
+        end
+        if _G.__PHRandomCloneControls then
+            pcall(function() _G.__PHRandomCloneControls:Enable() end)
+            _G.__PHRandomCloneControls = nil
+        end
+        local camera = Workspace.CurrentCamera
+        local original = LocalPlayer.Character
+        local originalHumanoid = original and original:FindFirstChildOfClass("Humanoid")
+        if camera and originalHumanoid then camera.CameraSubject = originalHumanoid end
+        if _G.__PHRandomControlClone then
+            pcall(function() _G.__PHRandomControlClone:Destroy() end)
+            _G.__PHRandomControlClone = nil
+        end
+        _G.__PHRandomCloneHumanoid = nil
+        _G.__PHRandomCloneRoot = nil
+    end
+
+    _G.__PHRandomCloneStart = function()
+        if _G.__PHRandomControlClone and _G.__PHRandomControlClone.Parent then return true end
+        local character = LocalPlayer.Character
+        local sourceHumanoid = character and character:FindFirstChildOfClass("Humanoid")
+        local sourceRoot = character and character:FindFirstChild("HumanoidRootPart")
+        if not character or not sourceHumanoid or not sourceRoot then return false end
+        local oldArchivable = character.Archivable
+        character.Archivable = true
+        local clone = character:Clone()
+        character.Archivable = oldArchivable
+        if not clone then return false end
+        clone.Name = "PrivateHub_ControlClone"
+        for _, obj in ipairs(clone:GetDescendants()) do
+            if obj:IsA("Script") or obj:IsA("LocalScript") or obj:IsA("ModuleScript") then
+                obj:Destroy()
+            elseif obj:IsA("BasePart") then
+                obj.CanCollide = false
+                obj.CanTouch = false
+                obj.Massless = true
+            end
+        end
+        local cloneHumanoid = clone:FindFirstChildOfClass("Humanoid")
+        local cloneRoot = clone:FindFirstChild("HumanoidRootPart")
+        if not cloneHumanoid or not cloneRoot then clone:Destroy(); return false end
+        clone.Parent = Workspace
+        clone:PivotTo(character:GetPivot())
+        cloneHumanoid.WalkSpeed = sourceHumanoid.WalkSpeed
+        cloneHumanoid.JumpPower = sourceHumanoid.JumpPower
+        cloneHumanoid.AutoRotate = true
+        _G.__PHRandomControlClone = clone
+        _G.__PHRandomCloneHumanoid = cloneHumanoid
+        _G.__PHRandomCloneRoot = cloneRoot
+
+        -- 標準コントローラーを止め、本体ではなくクローンだけを動かす。
+        pcall(function()
+            local playerScripts = LocalPlayer:FindFirstChild("PlayerScripts")
+            local playerModule = playerScripts and playerScripts:FindFirstChild("PlayerModule")
+            if playerModule then
+                local controls = require(playerModule):GetControls()
+                controls:Disable()
+                _G.__PHRandomCloneControls = controls
+            end
+        end)
+        local camera = Workspace.CurrentCamera
+        if camera then camera.CameraSubject = cloneHumanoid end
+
+        if _G.__PHRandomCloneRenderConn then
+            pcall(function() _G.__PHRandomCloneRenderConn:Disconnect() end)
+        end
+        _G.__PHRandomCloneRenderConn = RunService.RenderStepped:Connect(function()
+            local activeClone = _G.__PHRandomControlClone
+            local activeHumanoid = _G.__PHRandomCloneHumanoid
+            if not state.RandomEnabled or not activeClone or not activeClone.Parent or not activeHumanoid or activeHumanoid.Health <= 0 then
+                return
+            end
+            local cam = Workspace.CurrentCamera
+            if not cam then return end
+            local forward = Vector3.new(cam.CFrame.LookVector.X, 0, cam.CFrame.LookVector.Z)
+            local right = Vector3.new(cam.CFrame.RightVector.X, 0, cam.CFrame.RightVector.Z)
+            if forward.Magnitude > 0 then forward = forward.Unit end
+            if right.Magnitude > 0 then right = right.Unit end
+            local move = Vector3.zero
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then move += forward end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then move -= forward end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then move += right end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then move -= right end
+            if move.Magnitude > 1 then move = move.Unit end
+            activeHumanoid:Move(move, false)
+            activeHumanoid.Jump = UserInputService:IsKeyDown(Enum.KeyCode.Space)
+        end)
+        return true
+    end
+
+    _G.__PHSetRandomCloneMode = function(enabled)
+        state.RandomEnabled = enabled == true
+        if state.RandomEnabled then
+            if not _G.__PHRandomCloneStart() then
+                state.RandomEnabled = false
+                showNotification("Random TP", "Character clone could not be created")
+            end
+        else
+            _G.__PHRandomCloneStop()
+        end
+    end
+
     local teleportSection = Instance.new("Frame")
     teleportSection.Name = "TeleportSection"
-    teleportSection.Size = UDim2.new(0.92, 0, 0, 620)
+    teleportSection.Size = UDim2.new(0.92, 0, 0, 660)
     teleportSection.Position = UDim2.new(0.04, 0, 0, 1630)
     teleportSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
     teleportSection.BorderSizePixel = 0
@@ -2027,22 +2365,57 @@ task.spawn(function()
     end)
 
     CheckboxSetters["TeleportRandom"] = createCheckboxToggle(teleportSection, "Random TP", 352, function(enabled)
-        state.RandomEnabled = enabled == true
+        _G.__PHSetRandomCloneMode(enabled)
     end)
 
-    SliderSetters["TeleportRandomX"] = createSliderRow(teleportSection, "Random X Center", -5000, 5000, state.RandomX, 388, function(v)
+    local randomKeyButton = Instance.new("TextButton")
+    randomKeyButton.Name = "RandomTPKeybind"
+    randomKeyButton.Size = UDim2.new(0, 150, 0, 26)
+    randomKeyButton.Position = UDim2.new(0, 10, 0, 384)
+    randomKeyButton.BackgroundColor3 = Color3.fromRGB(22, 22, 25)
+    randomKeyButton.BorderSizePixel = 0
+    randomKeyButton.Font = FONT_MAIN
+    randomKeyButton.Text = "Random TP Key: " .. state.RandomKey
+    randomKeyButton.TextColor3 = Color3.fromRGB(220, 220, 225)
+    randomKeyButton.TextSize = 11
+    randomKeyButton.Parent = teleportSection
+    Instance.new("UICorner", randomKeyButton).CornerRadius = UDim.new(0, 4)
+    addStroke(randomKeyButton, Color3.fromRGB(50, 50, 55), 0, 1)
+    _G.__PHRandomKeyListening = false
+    randomKeyButton.MouseButton1Click:Connect(function()
+        _G.__PHRandomKeyListening = true
+        randomKeyButton.Text = "Press a key..."
+    end)
+    UserInputService.InputBegan:Connect(function(input, processed)
+        if _G.__PHRandomKeyListening then
+            if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode ~= Enum.KeyCode.Unknown then
+                state.RandomKey = input.KeyCode.Name
+                randomKeyButton.Text = "Random TP Key: " .. state.RandomKey
+                _G.__PHRandomKeyListening = false
+                showNotification("Random TP", "Shortcut: " .. state.RandomKey)
+            end
+            return
+        end
+        if processed or input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+        if input.KeyCode.Name == state.RandomKey then
+            local nextEnabled = not state.RandomEnabled
+            CheckboxSetters["TeleportRandom"](nextEnabled)
+        end
+    end)
+
+    SliderSetters["TeleportRandomX"] = createSliderRow(teleportSection, "Random X Center", -5000, 5000, state.RandomX, 423, function(v)
         state.RandomX = v
     end)
-    SliderSetters["TeleportRandomY"] = createSliderRow(teleportSection, "Random Y Center", -500, 5000, state.RandomY, 433, function(v)
+    SliderSetters["TeleportRandomY"] = createSliderRow(teleportSection, "Random Y Center", -500, 5000, state.RandomY, 468, function(v)
         state.RandomY = v
     end)
-    SliderSetters["TeleportRandomZ"] = createSliderRow(teleportSection, "Random Z Center", -5000, 5000, state.RandomZ, 478, function(v)
+    SliderSetters["TeleportRandomZ"] = createSliderRow(teleportSection, "Random Z Center", -5000, 5000, state.RandomZ, 513, function(v)
         state.RandomZ = v
     end)
-    SliderSetters["TeleportRandomRange"] = createSliderRow(teleportSection, "Random Range", 0, 5000, state.RandomRange, 523, function(v)
+    SliderSetters["TeleportRandomRange"] = createSliderRow(teleportSection, "Random Range", 0, 5000, state.RandomRange, 558, function(v)
         state.RandomRange = v
     end)
-    SliderSetters["TeleportRandomYRange"] = createSliderRow(teleportSection, "Random Y Range", 0, 1000, state.RandomYRange, 568, function(v)
+    SliderSetters["TeleportRandomYRange"] = createSliderRow(teleportSection, "Random Y Range", 0, 1000, state.RandomYRange, 603, function(v)
         state.RandomYRange = v
     end)
 
@@ -2053,6 +2426,10 @@ task.spawn(function()
 
     _G.__PrivateHubTeleportApplyConfig = function(data)
         if type(data) ~= "table" then return end
+        if data.randomTeleportKey then
+            state.RandomKey = tostring(data.randomTeleportKey)
+            randomKeyButton.Text = "Random TP Key: " .. state.RandomKey
+        end
         local bools = {
             TeleportFollow = "followTeleport",
             TeleportRandom = "randomTeleport"
@@ -2096,7 +2473,16 @@ task.spawn(function()
         end
     end)
 
-    -- ランダムTP
+    -- リスポーン時もクローンを新しい本体から作り直す。
+    LocalPlayer.CharacterAdded:Connect(function()
+        if state.RandomEnabled then
+            _G.__PHRandomCloneStop()
+            task.wait(0.35)
+            if state.RandomEnabled then _G.__PHRandomCloneStart() end
+        end
+    end)
+
+    -- ランダムTP（こちらが動かすのは本体のみ。操作対象はローカルクローン）
     RunService.Heartbeat:Connect(function()
         if not state.RandomEnabled then return end
         local char = LocalPlayer.Character
@@ -3120,7 +3506,7 @@ _G.__PHWatermarkBox.Position = UDim2.new(0, 0, 0, 22)
 _G.__PHWatermarkBox.BackgroundColor3 = Color3.fromRGB(22, 22, 25)
 _G.__PHWatermarkBox.BorderSizePixel = 0
 _G.__PHWatermarkBox.Font = FONT_MAIN
-_G.__PHWatermarkBox.Text = "asahara.gg"
+_G.__PHWatermarkBox.Text = "PRIVATE HUB"
 _G.__PHWatermarkBox.TextColor3 = Color3.fromRGB(220, 220, 225)
 _G.__PHWatermarkBox.TextSize = 12
 _G.__PHWatermarkBox.Parent = textRow
@@ -3133,8 +3519,8 @@ _G.__PHWatermarkBox:GetPropertyChangedSignal("Text"):Connect(function()
 		CursorText.Text = _G.__PHWatermarkBox.Text
 		watermarkTextValue = _G.__PHWatermarkBox.Text
 	else
-		CursorText.Text = "asahara.gg"
-		watermarkTextValue = "asahara.gg"
+		CursorText.Text = "PRIVATE HUB"
+		watermarkTextValue = "PRIVATE HUB"
 	end
 end)
 
@@ -4155,7 +4541,7 @@ settingsScroll = Instance.new("ScrollingFrame")
 settingsScroll.Size = UDim2.new(1, 0, 1, 0)
 settingsScroll.BackgroundTransparency = 1
 settingsScroll.BorderSizePixel = 0
-settingsScroll.CanvasSize = UDim2.new(0, 0, 0, 720)
+settingsScroll.CanvasSize = UDim2.new(0, 0, 0, 770)
 settingsScroll.ScrollBarThickness = 2
 settingsScroll.Parent = settingsPage
 
@@ -4315,7 +4701,7 @@ Instance.new("UICorner", btnRefresh).CornerRadius = UDim.new(0, 4)
 addStroke(btnRefresh, Color3.fromRGB(40, 40, 45), 0, 1)
 
 settingGuiFrame = Instance.new("Frame")
-settingGuiFrame.Size = UDim2.new(0.92, 0, 0, 350)
+settingGuiFrame.Size = UDim2.new(0.92, 0, 0, 390)
 settingGuiFrame.Position = UDim2.new(0.04, 0, 0, 340)
 settingGuiFrame.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 settingGuiFrame.BorderSizePixel = 0
@@ -4408,6 +4794,17 @@ _G.__PHTextColorBtn = createColorPreviewRowInParent(settingGuiFrame, "Text Color
 _G.__PrivateHubToggleKeyBtn = createButtonRow("Toggle Key", "RightShift", 154)
 _G.__PHStartupSoundBox = createInputRow("Startup Sound ID", "0", 192)
 _G.__PHNotificationSoundBox = createInputRow("Notification Sound ID", "0", 230)
+
+_G.__PHStartupGuiButton = createButtonRow(
+    "Show GUI on startup",
+    _G.__PrivateHubStartupGuiState.Enabled and "ON" or "OFF",
+    268
+)
+_G.__PHStartupGuiButton.MouseButton1Click:Connect(function()
+    _G.__PrivateHubStartupGuiState.Enabled = not _G.__PrivateHubStartupGuiState.Enabled
+    _G.__PHStartupGuiButton.Text = _G.__PrivateHubStartupGuiState.Enabled and "ON" or "OFF"
+    showNotification("Show GUI on startup: " .. _G.__PHStartupGuiButton.Text)
+end)
 
 applyThemeColors = function()
 	local mainCol = _G.__PHMainColorBtn.BackgroundColor3
@@ -4673,6 +5070,7 @@ Config_gatherSettingsData = function()
 		accentColor = Config_colorToHex(_G.__PHAccentColorBtn.BackgroundColor3),
 		textColor = Config_colorToHex(_G.__PHTextColorBtn.BackgroundColor3),
 		toggleKey = _G.__PrivateHubToggleKeyBtn.Text,
+        showGuiOnStartup = _G.__PrivateHubStartupGuiState.Enabled == true,
 		startupSound = _G.__PHStartupSoundBox.Text,
 		notificationSound = _G.__PHNotificationSoundBox.Text,
 		walkSpeedEnabled = ModSpeedEnabled, -- ★ Config保存用
@@ -4681,10 +5079,13 @@ Config_gatherSettingsData = function()
 		noclip = ModNoclipEnabled,
 		spinEnabled = _G.__PrivateHubSpinState.Enabled,
 		spinSpeed = _G.__PrivateHubSpinState.Speed,
+		flyEnabled = _G.__PrivateHubFlyState.Enabled == true,
+		flySpeed = _G.__PrivateHubFlyState.Speed or 50,
 		matchAutoQueue = _G.__PrivateHubMatchState.Enabled,
 		matchMode = _G.__PrivateHubMatchState.Mode,
 		followTeleport = _G.__PrivateHubTeleportState and _G.__PrivateHubTeleportState.FollowEnabled == true,
 		randomTeleport = _G.__PrivateHubTeleportState and _G.__PrivateHubTeleportState.RandomEnabled == true,
+		randomTeleportKey = _G.__PrivateHubTeleportState and _G.__PrivateHubTeleportState.RandomKey or "G",
 		teleportTargetName = _G.__PrivateHubTeleportState and _G.__PrivateHubTeleportState.TargetName or "",
 		teleportOffsetX = _G.__PrivateHubTeleportState and _G.__PrivateHubTeleportState.OffsetX or 0,
 		teleportOffsetY = _G.__PrivateHubTeleportState and _G.__PrivateHubTeleportState.OffsetY or 3,
@@ -4827,6 +5228,10 @@ Config_loadConfigByName = function(Config_cName)
 				if Config_data.informationShowConfig ~= nil and CheckboxSetters["InformationConfig"] then CheckboxSetters["InformationConfig"](Config_data.informationShowConfig, true) end
 				if Config_data.informationShowPlayers ~= nil and CheckboxSetters["InformationPlayers"] then CheckboxSetters["InformationPlayers"](Config_data.informationShowPlayers, true) end
 				if Config_data.toggleKey then _G.__PrivateHubToggleKeyBtn.Text = Config_data.toggleKey end
+                if Config_data.showGuiOnStartup ~= nil then
+                    _G.__PrivateHubStartupGuiState.Enabled = Config_data.showGuiOnStartup == true
+                    if _G.__PHStartupGuiButton then _G.__PHStartupGuiButton.Text = _G.__PrivateHubStartupGuiState.Enabled and "ON" or "OFF" end
+                end
 				if Config_data.startupSound then _G.__PHStartupSoundBox.Text = Config_data.startupSound end
 				if Config_data.notificationSound then _G.__PHNotificationSoundBox.Text = Config_data.notificationSound end
 				
@@ -4836,6 +5241,8 @@ Config_loadConfigByName = function(Config_cName)
 				if Config_data.noclip ~= nil and CheckboxSetters["Noclip"] then CheckboxSetters["Noclip"](Config_data.noclip, true) end
 				if Config_data.spinEnabled ~= nil and CheckboxSetters["Spin"] then CheckboxSetters["Spin"](Config_data.spinEnabled, true) end
 				if Config_data.spinSpeed and SliderSetters["SpinSpeed"] then SliderSetters["SpinSpeed"](Config_data.spinSpeed) end
+				if Config_data.flySpeed and SliderSetters["FlySpeed"] then SliderSetters["FlySpeed"](Config_data.flySpeed) end
+				if Config_data.flyEnabled ~= nil and CheckboxSetters["Fly"] then CheckboxSetters["Fly"](Config_data.flyEnabled, true) end
 
 				if Config_data.matchMode and _G.__PrivateHubMatchSetMode then
 					_G.__PrivateHubMatchSetMode(Config_data.matchMode)
@@ -5057,6 +5464,7 @@ if readfile and isfile and isfile(Config_lastConfigPath) then
 end
 
 end
+setGuiOpen(_G.__PrivateHubStartupGuiState.Enabled == true)
 playSound(tonumber(_G.__PHStartupSoundBox.Text) or 0)
 
 _G.__PrivateHubGlitchTime = os.clock()
@@ -5474,7 +5882,7 @@ combatSection.Parent = mainScroll
 Instance.new("UICorner", combatSection).CornerRadius = UDim.new(0, 6)
 addStroke(combatSection, Color3.fromRGB(40, 40, 45), 0, 1)
 
-mainScroll.CanvasSize = UDim2.new(0, 0, 0, 3295)
+mainScroll.CanvasSize = UDim2.new(0, 0, 0, 3385)
 
 local combatTitle = Instance.new("TextLabel")
 combatTitle.Name = "DynamicText"
@@ -5840,4 +6248,90 @@ if loadConfigByName then
 end
 end)
 
+end
+-- ==========================================================
+-- Waist text orbit: each character rotates individually
+-- ==========================================================
+do
+    local orbitFolder = Instance.new("Folder")
+    orbitFolder.Name = "PrivateHubBodyTextOrbit"
+    orbitFolder.Parent = workspace
+
+    local orbitItems = {}
+    local orbitText = "PRIVATE HUB"
+    local orbitCount = #orbitText
+    local orbitRadius = 1.65
+    local orbitHeight = 0.55
+    local orbitSpeed = math.rad(75)
+    local orbitAngle = 0
+
+    for i = 1, orbitCount do
+        local anchor = Instance.new("Part")
+        anchor.Name = "BodyLetterAnchor" .. i
+        anchor.Size = Vector3.new(0.1, 0.1, 0.1)
+        anchor.Transparency = 1
+        anchor.Anchored = true
+        anchor.CanCollide = false
+        anchor.CanTouch = false
+        anchor.CanQuery = false
+        anchor.Parent = orbitFolder
+
+        local billboard = Instance.new("BillboardGui")
+        billboard.Name = "BodyLetterBillboard" .. i
+        billboard.Adornee = anchor
+        billboard.Size = UDim2.fromOffset(76, 82)
+        billboard.AlwaysOnTop = true
+        billboard.LightInfluence = 0
+        billboard.MaxDistance = 2500
+        billboard.Parent = anchor
+
+        local label = Instance.new("TextLabel")
+        label.Name = "Letter"
+        label.BackgroundTransparency = 1
+        label.Size = UDim2.fromScale(1, 1)
+        label.Font = Enum.Font.Arcade
+        label.Text = orbitText:sub(i, i)
+        label.TextSize = 42
+        label.TextScaled = false
+        label.TextWrapped = false
+        label.TextStrokeTransparency = 0.08
+        label.TextStrokeColor3 = Color3.fromRGB(10, 10, 12)
+        label.TextColor3 = Color3.fromRGB(255, 255, 255)
+        label.Parent = billboard
+
+        orbitItems[i] = {anchor = anchor, label = label}
+    end
+
+    RunService.RenderStepped:Connect(function(dt)
+        local character = LocalPlayer.Character
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+        local visible = mainFrame and mainFrame.Visible
+
+        if not root or not visible then
+            orbitFolder.Parent = nil
+            return
+        end
+        if orbitFolder.Parent == nil then
+            orbitFolder.Parent = workspace
+        end
+
+        orbitAngle = (orbitAngle + orbitSpeed * dt) % (math.pi * 2)
+        local accent = (_G.__PHTextColorBtn and _G.__PHTextColorBtn.BackgroundColor3)
+            or (_G.__PHAccentColor and _G.__PHAccentColor)
+            or Color3.fromRGB(210, 140, 180)
+
+        for i, item in ipairs(orbitItems) do
+            local angle = orbitAngle + ((i - 1) / orbitCount) * math.pi * 2
+            local offset = Vector3.new(
+                math.cos(angle) * orbitRadius,
+                orbitHeight,
+                math.sin(angle) * orbitRadius
+            )
+            item.anchor.CFrame = CFrame.new(root.Position + offset)
+            -- Each glyph is separate and rotates along its own orbit position.
+            item.label.Rotation = 0
+            item.label.TextColor3 = accent
+            item.label.TextStrokeColor3 = Color3.new(accent.R * 0.16, accent.G * 0.16, accent.B * 0.16)
+        end
+    end)
 end
