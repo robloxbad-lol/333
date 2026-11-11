@@ -846,7 +846,7 @@ contentArea.Parent = containerArea
 Instance.new("UICorner", contentArea).CornerRadius = UDim.new(0, 6)
 addStroke(contentArea, Color3.fromRGB(30, 30, 35), 0, 1)
 
-local tabNames = {"Main", "Visuals", "Misc", "Settings", "Character"}
+local tabNames = {"Main", "Visuals", "Misc", "Character", "Settings"}
 local tabButtons = {}
 local tabPages = {}
 local currentActiveTab = "Main"
@@ -1467,13 +1467,13 @@ do
     emoteScroll.Size = UDim2.new(1, 0, 1, 0)
     emoteScroll.BackgroundTransparency = 1
     emoteScroll.BorderSizePixel = 0
-    emoteScroll.CanvasSize = UDim2.new(0, 0, 0, 330)
+    emoteScroll.CanvasSize = UDim2.new(0, 0, 0, 760)
     emoteScroll.ScrollBarThickness = 2
     emoteScroll.Parent = emotePage
 
     local emoteSection = Instance.new("Frame")
     emoteSection.Name = "EmoteSection"
-    emoteSection.Size = UDim2.new(0.94, 0, 0, 310)
+    emoteSection.Size = UDim2.new(0.94, 0, 0, 350)
     emoteSection.Position = UDim2.new(0.03, 0, 0, 12)
     emoteSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
     emoteSection.BorderSizePixel = 0
@@ -1507,12 +1507,14 @@ do
         {"ybjump", "rbxassetid://15609995579"}
     }
 
+    _G.__PrivateHubEmoteList = emoteList
     local emoteState = _G.__PrivateHubEmoteState or {}
     _G.__PrivateHubEmoteState = emoteState
     emoteState.SelectedId = emoteState.SelectedId or emoteList[1][2]
     emoteState.SelectedName = emoteState.SelectedName or emoteList[1][1]
     emoteState.ManualEnabled = emoteState.ManualEnabled == true
     emoteState.AutoEnabled = emoteState.AutoEnabled == true
+    emoteState.KeyCode = emoteState.KeyCode or "G"
     emoteState.Track = nil
 
     local function stopEmoteTrack()
@@ -1570,6 +1572,7 @@ do
 
     local dropdownButton = Instance.new("TextButton")
     dropdownButton.Name = "EmoteDropdown"
+    _G.__PrivateHubEmoteDropdownButton = dropdownButton
     dropdownButton.Size = UDim2.new(1, -20, 0, 34)
     dropdownButton.Position = UDim2.new(0, 10, 0, 66)
     dropdownButton.BackgroundColor3 = Color3.fromRGB(25, 25, 29)
@@ -1735,6 +1738,44 @@ do
         showNotification("Emote", "停止しました")
     end)
 
+    -- 既存Emoteの選択・再生方式はそのまま。キーを押すと既存Emote ON/OFFを切り替える。
+    local emoteKeyName = emoteState.KeyCode or "G"
+    local emoteKeyListening = false
+    local emoteKeyButton = Instance.new("TextButton")
+    emoteKeyButton.Name = "EmoteKeybind"
+    _G.__PrivateHubEmoteKeyButton = emoteKeyButton
+    emoteKeyButton.Size = UDim2.new(1, -20, 0, 28)
+    emoteKeyButton.Position = UDim2.new(0, 10, 0, 270)
+    emoteKeyButton.BackgroundColor3 = Color3.fromRGB(25, 25, 29)
+    emoteKeyButton.BorderSizePixel = 0
+    emoteKeyButton.Font = FONT_MAIN
+    emoteKeyButton.Text = "Emote Key: " .. tostring(emoteKeyName) .. "  (click to change)"
+    emoteKeyButton.TextColor3 = Color3.fromRGB(230, 230, 235)
+    emoteKeyButton.TextSize = 11
+    emoteKeyButton.Parent = emoteSection
+    Instance.new("UICorner", emoteKeyButton).CornerRadius = UDim.new(0, 4)
+    addStroke(emoteKeyButton, Color3.fromRGB(65, 65, 72), 0.2, 1)
+    emoteKeyButton.MouseButton1Click:Connect(function()
+        emoteKeyListening = true
+        emoteKeyButton.Text = "Press any key..."
+    end)
+    UserInputService.InputBegan:Connect(function(input, processed)
+        if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+        if emoteKeyListening then
+            if input.KeyCode ~= Enum.KeyCode.Unknown then
+                emoteKeyName = input.KeyCode.Name
+                emoteState.KeyCode = emoteKeyName
+                emoteKeyButton.Text = "Emote Key: " .. emoteKeyName .. "  (click to change)"
+            end
+            emoteKeyListening = false
+            return
+        end
+        if not processed and input.KeyCode.Name == (emoteState.KeyCode or emoteKeyName) and emoteState.SelectedId then
+            local setter = CheckboxSetters["EmoteManual"]
+            if setter then setter(not emoteState.ManualEnabled, false) end
+        end
+    end)
+
     -- RoundEnded の引数が "Won" のときだけ、選択中のエモートを一度再生。
     local remotes = ReplicatedStorage:FindFirstChild("Remotes")
     local roundEnded = remotes and remotes:FindFirstChild("OnRoundEnded")
@@ -1758,6 +1799,703 @@ do
             playEmote(emoteState.SelectedId, true)
         end
     end)
+end
+
+--------------------------------------------------
+-- Character > Avatar Changer / Outfit
+--------------------------------------------------
+do
+    local characterPage = tabPages["Character"]
+    local characterScroll = characterPage:FindFirstChild("CharacterScroll")
+    if characterScroll then
+        local function makeCharacterSection(titleText, y, height)
+            local section = Instance.new("Frame")
+            section.Name = "Character_" .. titleText:gsub("%W", "")
+            section.Size = UDim2.new(0.94, 0, 0, height)
+            section.Position = UDim2.new(0.03, 0, 0, y)
+            section.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
+            section.BorderSizePixel = 0
+            section.Parent = characterScroll
+            Instance.new("UICorner", section).CornerRadius = UDim.new(0, 6)
+            addStroke(section, Color3.fromRGB(40, 40, 45), 0, 1)
+            local title = Instance.new("TextLabel")
+            title.Name = "DynamicText"
+            title.Size = UDim2.new(1, -20, 0, 28)
+            title.Position = UDim2.new(0, 10, 0, 4)
+            title.BackgroundTransparency = 1
+            title.Font = FONT_BOLD
+            title.Text = titleText
+            title.TextColor3 = Color3.fromRGB(245, 220, 230)
+            title.TextSize = 13
+            title.TextXAlignment = Enum.TextXAlignment.Left
+            title.Parent = section
+            return section
+        end
+
+        local avatarSection = makeCharacterSection("AVATAR CHANGER", 370, 300)
+        local avatarDropdown = Instance.new("TextButton")
+        avatarDropdown.Size = UDim2.new(1, -20, 0, 32)
+        avatarDropdown.Position = UDim2.new(0, 10, 0, 38)
+        avatarDropdown.BackgroundColor3 = Color3.fromRGB(25, 25, 29)
+        avatarDropdown.BorderSizePixel = 0
+        avatarDropdown.Font = FONT_MAIN
+        avatarDropdown.Text = "Select accessories  ▼"
+        avatarDropdown.TextColor3 = Color3.fromRGB(235, 235, 240)
+        avatarDropdown.TextSize = 12
+        avatarDropdown.Parent = avatarSection
+        Instance.new("UICorner", avatarDropdown).CornerRadius = UDim.new(0, 4)
+        addStroke(avatarDropdown, Color3.fromRGB(65, 65, 72), 0.2, 1)
+
+        local avatarOptions = Instance.new("ScrollingFrame")
+        avatarOptions.Name = "AvatarAccessoryOptions"
+        avatarOptions.Size = UDim2.new(1, -20, 0, 0)
+        avatarOptions.Position = UDim2.new(0, 10, 0, 74)
+        avatarOptions.BackgroundColor3 = Color3.fromRGB(20, 20, 23)
+        avatarOptions.BorderSizePixel = 0
+        avatarOptions.ScrollBarThickness = 3
+        avatarOptions.CanvasSize = UDim2.new(0, 0, 0, 7 * 31)
+        avatarOptions.Visible = false
+        avatarOptions.ZIndex = 25
+        avatarOptions.Parent = avatarSection
+        Instance.new("UICorner", avatarOptions).CornerRadius = UDim.new(0, 4)
+        addStroke(avatarOptions, Color3.fromRGB(65, 65, 72), 0.2, 1)
+        local optionsLayout = Instance.new("UIListLayout")
+        optionsLayout.Padding = UDim.new(0, 2)
+        optionsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        optionsLayout.Parent = avatarOptions
+        avatarDropdown.MouseButton1Click:Connect(function()
+            local open = not avatarOptions.Visible
+            avatarOptions.Visible = open
+            avatarOptions.Size = UDim2.new(1, -20, 0, open and 155 or 0)
+            avatarDropdown.Text = "Select accessories  " .. (open and "▲" or "▼")
+        end)
+
+        local accessorySpecs = {
+            ["Ice-Fire Ram Skull Helm"] = {name="PH_Custom_IceFireRamSkull", body="Head", size=Vector3.new(1.5,1.5,1.5), mesh="rbxassetid://93017074040073", texture="rbxassetid://93029349848679", scale=Vector3.new(1.5,1.5,1.5), attach="HatAttachment", offset=CFrame.new(0,1,0), particle=true},
+            ["DOMINO CROWN COOL"] = {name="PH_Custom_DominoCrown", body="Head", size=Vector3.new(1,1,1), mesh="rbxassetid://96567289136240", texture="rbxassetid://122885514662855", scale=Vector3.new(1,1,1), attach="HatAttachment", attachOffset=CFrame.new(0,-0.8,0), offset=CFrame.new(0,1.2,0)},
+            ["FlamingHorns (red)"] = {name="PH_Custom_FlamingHornsRed", body="Head", size=Vector3.new(1.23,0.76,1.41), mesh="http://www.roblox.com/asset/?id=215680403", texture="http://www.roblox.com/asset/?id=215676264", scale=Vector3.new(1,1,1), attach="HatAttachment", attachOffset=CFrame.new(0,-0.7,0), offset=CFrame.new(0,1.2,0), fire={Color3.fromRGB(255,170,0),Color3.fromRGB(255,64,0),8,3}},
+            ["FlamingHorns (blue)"] = {name="PH_Custom_FlamingHornsBlue", body="Head", size=Vector3.new(1.23,0.76,1.41), mesh="http://www.roblox.com/asset/?id=215680403", texture="rbxassetid://658646189", scale=Vector3.new(1,1,1), attach="HatAttachment", attachOffset=CFrame.new(0,-0.7,0), offset=CFrame.new(0,1.2,0), fire={Color3.fromRGB(158,26,255),Color3.fromRGB(0,19,255),8,3}},
+            ["Valkyrie Helm"] = {name="PH_Custom_ValkyrieHelm", body="Head", size=Vector3.new(1,0.8,1), mesh="http://www.roblox.com/asset/?id=1365696", texture="http://www.roblox.com/asset/?id=1365693", scale=Vector3.new(1,1,1.15), attach="HatAttachment", attachOffset=CFrame.new(0,-0.24,-0.27), offset=CFrame.new(0,1,0)},
+            ["Full Mask"] = {name="PH_Custom_FullMask", body="Head", size=Vector3.new(2,2,2), mesh="http://www.roblox.com/asset/?id=1474596", texture="http://www.roblox.com/asset/?id=178262783", scale=Vector3.new(0.5,0.5,0.5), attach="HatAttachment", attachOffset=CFrame.new(0,0.2,0), offset=CFrame.new(0,0.3,0), fire={Color3.fromRGB(52,89,255),Color3.fromRGB(6,217,240),25,5}},
+            ["Angle Devil Wings"] = {name="PH_Custom_AngleDevilWings", body="UpperTorso", fallback="Torso", size=Vector3.new(1.25,1.15,1.24), mesh="rbxassetid://493432400", texture="rbxassetid://492725416", scale=Vector3.new(1.05,1,1), attach="BodyBackAttachment", attachOffset=CFrame.new(0,-0.5,1), offset=CFrame.new(0,0,-0.8)},
+        }
+        local accessoryOrder = {"Ice-Fire Ram Skull Helm", "DOMINO CROWN COOL", "FlamingHorns (red)", "FlamingHorns (blue)", "Valkyrie Helm", "Full Mask", "Angle Devil Wings"}
+        local selectedAccessories = _G.__PHSelectedAccessories or {}
+        _G.__PHSelectedAccessories = selectedAccessories
+        local function removeAccessory(char, key)
+            local spec = accessorySpecs[key]
+            local old = char and spec and char:FindFirstChild(spec.name)
+            if old then old:Destroy() end
+        end
+        local function applyAccessory(char, key)
+            local spec = accessorySpecs[key]
+            if not char or not spec then return end
+            removeAccessory(char, key)
+            local body = char:FindFirstChild(spec.body) or (spec.fallback and char:FindFirstChild(spec.fallback))
+            if not body then return end
+            local accessory = Instance.new("Accessory")
+            accessory.Name = spec.name
+            local handle = Instance.new("Part")
+            handle.Name = "Handle"
+            handle.Size = spec.size
+            handle.Transparency = 0
+            handle.CanCollide = false
+            handle.Massless = true
+            local mesh = Instance.new("SpecialMesh")
+            mesh.MeshType = Enum.MeshType.FileMesh
+            mesh.MeshId = spec.mesh
+            mesh.TextureId = spec.texture
+            mesh.Scale = spec.scale
+            mesh.Parent = handle
+            if spec.particle then
+                local emitter = Instance.new("ParticleEmitter")
+                emitter.Name = "fire"
+                emitter.Texture = "rbxassetid://7673945261"
+                emitter.Color = ColorSequence.new(Color3.fromRGB(255,255,255))
+                emitter.Size = NumberSequence.new(1.5)
+                emitter.Rate = 20
+                emitter.Transparency = NumberSequence.new(0)
+                emitter.Lifetime = NumberRange.new(0.5,1)
+                emitter.Speed = NumberRange.new(2,3)
+                emitter.Parent = handle
+            end
+            if spec.fire then
+                local fire = Instance.new("Fire")
+                fire.Name = "Fire"
+                fire.Color = spec.fire[1]
+                fire.SecondaryColor = spec.fire[2]
+                fire.Heat = spec.fire[3]
+                fire.Size = spec.fire[4]
+                fire.Enabled = true
+                fire.Parent = handle
+            end
+            local attachment = Instance.new("Attachment")
+            attachment.Name = spec.attach
+            attachment.CFrame = spec.attachOffset or CFrame.new(0,-0.7,0)
+            attachment.Parent = handle
+            handle.Parent = accessory
+            accessory.Parent = char
+            handle.CFrame = body.CFrame * spec.offset
+            local weld = Instance.new("WeldConstraint")
+            weld.Part0 = body
+            weld.Part1 = handle
+            weld.Parent = handle
+        end
+        local function updateAccessory(key, enabled)
+            selectedAccessories[key] = enabled == true and true or nil
+            local char = LocalPlayer.Character
+            if enabled then applyAccessory(char, key) else removeAccessory(char, key) end
+            local count = 0
+            for _ in pairs(selectedAccessories) do count = count + 1 end
+            avatarDropdown.Text = "Accessories selected: " .. count .. "  ▼"
+        end
+        for index, key in ipairs(accessoryOrder) do
+            local option = Instance.new("TextButton")
+            option.Name = "AccessoryOption" .. index
+            option.Size = UDim2.new(1, -4, 0, 29)
+            option.BackgroundColor3 = Color3.fromRGB(29,29,33)
+            option.BorderSizePixel = 0
+            option.Font = FONT_MAIN
+            option.TextSize = 11
+            option.TextColor3 = Color3.fromRGB(225,225,230)
+            option.LayoutOrder = index
+            option.ZIndex = 26
+            option.Parent = avatarOptions
+            local function refreshOption()
+                option.Text = (selectedAccessories[key] and "✓  " or "＋  ") .. key
+                option.BackgroundColor3 = selectedAccessories[key] and Color3.fromRGB(38,75,52) or Color3.fromRGB(29,29,33)
+            end
+            refreshOption()
+            option.MouseButton1Click:Connect(function()
+                updateAccessory(key, not selectedAccessories[key])
+                refreshOption()
+            end)
+        end
+        local selectedCount = 0
+        for _ in pairs(selectedAccessories) do selectedCount = selectedCount + 1 end
+        avatarDropdown.Text = "Accessories selected: " .. selectedCount .. "  ▼"
+
+        local stripSection = makeCharacterSection("REMOVE ORIGINAL APPEARANCE", 680, 75)
+        local stripEnabled = _G.__PHStripOriginalAppearance == true
+        local stripButton = Instance.new("TextButton")
+        stripButton.Size = UDim2.new(1,-20,0,30)
+        stripButton.Position = UDim2.new(0,10,0,36)
+        stripButton.BackgroundColor3 = stripEnabled and Color3.fromRGB(40,120,65) or Color3.fromRGB(100,40,40)
+        stripButton.BorderSizePixel = 0
+        stripButton.Font = FONT_BOLD
+        stripButton.Text = stripEnabled and "ON" or "OFF"
+        stripButton.TextColor3 = Color3.new(1,1,1)
+        stripButton.TextSize = 11
+        stripButton.Parent = stripSection
+        Instance.new("UICorner", stripButton).CornerRadius = UDim.new(0,4)
+        local function stripOriginalAppearance(char)
+            if not _G.__PHStripOriginalAppearance or not char then return end
+            for _, obj in ipairs(char:GetChildren()) do
+                if obj:IsA("Accessory") and not obj.Name:match("^PH_Custom_") then
+                    obj:Destroy()
+                elseif (obj:IsA("Shirt") or obj:IsA("Pants") or obj:IsA("ShirtGraphic")) and obj:GetAttribute("PH_CustomClothing") ~= true then
+                    obj:Destroy()
+                end
+            end
+        end
+        stripButton.MouseButton1Click:Connect(function()
+            stripEnabled = not stripEnabled
+            _G.__PHStripOriginalAppearance = stripEnabled
+            stripButton.Text = stripEnabled and "ON" or "OFF"
+            stripButton.BackgroundColor3 = stripEnabled and Color3.fromRGB(40,120,65) or Color3.fromRGB(100,40,40)
+            if stripEnabled then stripOriginalAppearance(LocalPlayer.Character) end
+        end)
+
+        local clothesSection = makeCharacterSection("CLOTHING ID", 765, 130)
+        local function makeSmallInput(parent, labelText, y, defaultText)
+            local label = Instance.new("TextLabel")
+            label.Size = UDim2.new(0.34,0,0,26)
+            label.Position = UDim2.new(0,10,0,y)
+            label.BackgroundTransparency = 1
+            label.Font = FONT_MAIN
+            label.Text = labelText
+            label.TextColor3 = Color3.fromRGB(205,205,210)
+            label.TextSize = 11
+            label.TextXAlignment = Enum.TextXAlignment.Left
+            label.Parent = parent
+            local box = Instance.new("TextBox")
+            box.Size = UDim2.new(0.60,0,0,26)
+            box.Position = UDim2.new(0.37,0,0,y)
+            box.BackgroundColor3 = Color3.fromRGB(25,25,29)
+            box.BorderSizePixel = 0
+            box.Font = FONT_MAIN
+            box.Text = defaultText or ""
+            box.PlaceholderText = "ID"
+            box.TextColor3 = Color3.fromRGB(240,240,245)
+            box.TextSize = 11
+            box.ClearTextOnFocus = false
+            box.Parent = parent
+            Instance.new("UICorner",box).CornerRadius = UDim.new(0,4)
+            return box
+        end
+        local shirtBox = makeSmallInput(clothesSection,"Shirt ID",36,"0")
+        local pantsBox = makeSmallInput(clothesSection,"Pants ID",66,"0")
+        local savedShirt = tonumber(_G.__PHShirtId) or 0
+        local savedPants = tonumber(_G.__PHPantsId) or 0
+        shirtBox.Text = tostring(savedShirt)
+        pantsBox.Text = tostring(savedPants)
+        local applyClothingButton = Instance.new("TextButton")
+        applyClothingButton.Size = UDim2.new(1,-20,0,25)
+        applyClothingButton.Position = UDim2.new(0,10,0,98)
+        applyClothingButton.BackgroundColor3 = Color3.fromRGB(42,65,105)
+        applyClothingButton.BorderSizePixel = 0
+        applyClothingButton.Font = FONT_BOLD
+        applyClothingButton.Text = "Apply Clothing"
+        applyClothingButton.TextColor3 = Color3.new(1,1,1)
+        applyClothingButton.TextSize = 11
+        applyClothingButton.Parent = clothesSection
+        Instance.new("UICorner",applyClothingButton).CornerRadius = UDim.new(0,4)
+        local function applyClothing(char)
+            if not char then return end
+            local function loadOne(id, className, property)
+                if id <= 0 then return end
+                local asset
+                local ok = pcall(function()
+                    local InsertService = game:GetService("InsertService")
+                    asset = InsertService:LoadAsset(id)
+                end)
+                if not ok or not asset then
+                    pcall(function() asset = game:GetObjects("rbxassetid://" .. tostring(id))[1] end)
+                end
+                if not asset then return end
+                local clothing = asset:FindFirstChildOfClass(className) or (asset:IsA(className) and asset)
+                if clothing then
+                    local current = char:FindFirstChildOfClass(className) or Instance.new(className)
+                    current[property] = clothing[property]
+                    current:SetAttribute("PH_CustomClothing", true)
+                    current.Parent = char
+                end
+                asset:Destroy()
+            end
+            loadOne(savedShirt,"Shirt","ShirtTemplate")
+            loadOne(savedPants,"Pants","PantsTemplate")
+        end
+        applyClothingButton.MouseButton1Click:Connect(function()
+            savedShirt = math.max(0,tonumber(shirtBox.Text) or 0)
+            savedPants = math.max(0,tonumber(pantsBox.Text) or 0)
+            _G.__PHShirtId = savedShirt
+            _G.__PHPantsId = savedPants
+            applyClothing(LocalPlayer.Character)
+        end)
+
+        local specialSection = makeCharacterSection("HEADLESS / KORBLOX", 910, 150)
+        local function makeAppearanceToggle(labelText, y, globalKey, callback)
+            local button = Instance.new("TextButton")
+            button.Size = UDim2.new(1,-20,0,27)
+            button.Position = UDim2.new(0,10,0,y)
+            button.BackgroundColor3 = _G[globalKey] and Color3.fromRGB(40,120,65) or Color3.fromRGB(100,40,40)
+            button.BorderSizePixel = 0
+            button.Font = FONT_MAIN
+            button.Text = labelText .. ": " .. (_G[globalKey] and "ON" or "OFF")
+            button.TextColor3 = Color3.new(1,1,1)
+            button.TextSize = 11
+            button.Parent = specialSection
+            button:SetAttribute("PHCharacterGlobalKey", globalKey)
+            button:SetAttribute("PHCharacterLabel", labelText)
+            Instance.new("UICorner",button).CornerRadius = UDim.new(0,4)
+            button.MouseButton1Click:Connect(function()
+                _G[globalKey] = not _G[globalKey]
+                button.Text = labelText .. ": " .. (_G[globalKey] and "ON" or "OFF")
+                button.BackgroundColor3 = _G[globalKey] and Color3.fromRGB(40,120,65) or Color3.fromRGB(100,40,40)
+                callback(LocalPlayer.Character)
+            end)
+        end
+        local function applySpecialAppearance(char)
+            if not char then return end
+            if _G.__PHHeadlessEnabled then
+                local head = char:FindFirstChild("Head")
+                if head and head:IsA("MeshPart") then
+                    pcall(function() head.MeshId="rbxassetid://134079402"; head.TextureID="rbxassetid://133940918"; head.Transparency=1 end)
+                    local face = head:FindFirstChild("face")
+                    if face then face.Transparency=1 end
+                end
+            end
+            if _G.__PHRightKorbloxEnabled then
+                for _,name in ipairs({"RightFoot","RightLowerLeg"}) do local part=char:FindFirstChild(name); if part and part:IsA("BasePart") then part.Transparency=1 end end
+                local part=char:FindFirstChild("RightUpperLeg")
+                if part and part:IsA("MeshPart") then pcall(function() part.MeshId="rbxassetid://9598310133"; part.TextureID="rbxassetid://902843398" end) end
+            end
+            if _G.__PHLeftKorbloxEnabled then
+                local foot=char:FindFirstChild("LeftFoot"); if foot and foot:IsA("BasePart") then foot.Transparency=1 end
+                local lower=char:FindFirstChild("LeftLowerLeg"); if lower and lower:IsA("MeshPart") then pcall(function() lower.MeshId="rbxassetid://9598310137"; lower.TextureID="rbxassetid://902842271" end) end
+                local upper=char:FindFirstChild("LeftUpperLeg"); if upper and upper:IsA("MeshPart") then pcall(function() upper.MeshId="rbxassetid://9598310131"; upper.TextureID="rbxassetid://902842271" end) end
+            end
+        end
+        makeAppearanceToggle("Headless",36,"__PHHeadlessEnabled",applySpecialAppearance)
+        makeAppearanceToggle("Right Korblox",68,"__PHRightKorbloxEnabled",applySpecialAppearance)
+        makeAppearanceToggle("Left Korblox",100,"__PHLeftKorbloxEnabled",applySpecialAppearance)
+
+        LocalPlayer.CharacterAdded:Connect(function(char)
+            task.wait(1)
+            stripOriginalAppearance(char)
+            for key, enabled in pairs(selectedAccessories) do
+                if enabled then applyAccessory(char,key) end
+            end
+            applyClothing(char)
+            applySpecialAppearance(char)
+        end)
+
+        --------------------------------------------------
+        -- Character専用CONFIG
+        -- private setting/キャラクターCONFIG に保存し、
+        -- 最後に使用したCONFIGを次回起動時に自動読込する。
+        --------------------------------------------------
+        local characterConfigFolder = "private setting/キャラクターCONFIG"
+        local characterConfigLastPath = characterConfigFolder .. "/last_config.txt"
+        local characterConfigActiveName = ""
+        local characterConfigSelectedName = ""
+        local characterConfigLoading = false
+        local characterConfigLastJson = ""
+
+        pcall(function()
+            if makefolder and not isfolder("private setting") then
+                makefolder("private setting")
+            end
+            if makefolder and not isfolder(characterConfigFolder) then
+                makefolder(characterConfigFolder)
+            end
+        end)
+
+        local characterConfigSection = makeCharacterSection("CHARACTER CONFIG", 1095, 300)
+        local characterConfigNameBox = Instance.new("TextBox")
+        characterConfigNameBox.Name = "CharacterConfigName"
+        characterConfigNameBox.Size = UDim2.new(1, -20, 0, 28)
+        characterConfigNameBox.Position = UDim2.new(0, 10, 0, 38)
+        characterConfigNameBox.BackgroundColor3 = Color3.fromRGB(24, 24, 28)
+        characterConfigNameBox.BorderSizePixel = 0
+        characterConfigNameBox.Font = FONT_MAIN
+        characterConfigNameBox.Text = ""
+        characterConfigNameBox.PlaceholderText = "Character config name"
+        characterConfigNameBox.TextColor3 = Color3.fromRGB(235, 235, 240)
+        characterConfigNameBox.PlaceholderColor3 = Color3.fromRGB(125, 125, 132)
+        characterConfigNameBox.TextSize = 11
+        characterConfigNameBox.ClearTextOnFocus = false
+        characterConfigNameBox.Parent = characterConfigSection
+        Instance.new("UICorner", characterConfigNameBox).CornerRadius = UDim.new(0, 4)
+        addStroke(characterConfigNameBox, Color3.fromRGB(65, 65, 72), 0.2, 1)
+
+        local characterConfigSelected = Instance.new("TextButton")
+        characterConfigSelected.Name = "CharacterConfigSelected"
+        characterConfigSelected.Size = UDim2.new(1, -20, 0, 28)
+        characterConfigSelected.Position = UDim2.new(0, 10, 0, 73)
+        characterConfigSelected.BackgroundColor3 = Color3.fromRGB(25, 25, 29)
+        characterConfigSelected.BorderSizePixel = 0
+        characterConfigSelected.Font = FONT_MAIN
+        characterConfigSelected.Text = "Select character config  ▼"
+        characterConfigSelected.TextColor3 = Color3.fromRGB(230, 230, 235)
+        characterConfigSelected.TextSize = 11
+        characterConfigSelected.Parent = characterConfigSection
+        Instance.new("UICorner", characterConfigSelected).CornerRadius = UDim.new(0, 4)
+        addStroke(characterConfigSelected, Color3.fromRGB(65, 65, 72), 0.2, 1)
+
+        local characterConfigList = Instance.new("ScrollingFrame")
+        characterConfigList.Name = "CharacterConfigList"
+        characterConfigList.Size = UDim2.new(1, -20, 0, 0)
+        characterConfigList.Position = UDim2.new(0, 10, 0, 104)
+        characterConfigList.BackgroundColor3 = Color3.fromRGB(18, 18, 21)
+        characterConfigList.BorderSizePixel = 0
+        characterConfigList.ScrollBarThickness = 3
+        characterConfigList.CanvasSize = UDim2.new(0, 0, 0, 0)
+        characterConfigList.Visible = false
+        characterConfigList.ZIndex = 40
+        characterConfigList.Parent = characterConfigSection
+        Instance.new("UICorner", characterConfigList).CornerRadius = UDim.new(0, 4)
+        local characterConfigListLayout = Instance.new("UIListLayout")
+        characterConfigListLayout.Padding = UDim.new(0, 2)
+        characterConfigListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        characterConfigListLayout.Parent = characterConfigList
+        characterConfigListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+            characterConfigList.CanvasSize = UDim2.new(0, 0, 0, characterConfigListLayout.AbsoluteContentSize.Y + 4)
+        end)
+
+        local function characterConfigRefreshList()
+            for _, child in ipairs(characterConfigList:GetChildren()) do
+                if child:IsA("TextButton") then child:Destroy() end
+            end
+            if not listfiles then return end
+            local ok, files = pcall(function() return listfiles(characterConfigFolder) end)
+            if not ok or type(files) ~= "table" then return end
+            table.sort(files)
+            local order = 0
+            for _, path in ipairs(files) do
+                if tostring(path):sub(-4) == ".txt" and not tostring(path):match("last_config%.txt$") then
+                    local fileName = tostring(path):match("([^/]+)$") or tostring(path)
+                    fileName = fileName:match("([^\\]+)$") or fileName
+                    local configName = fileName:gsub("%.txt$", "")
+                    order = order + 1
+                    local item = Instance.new("TextButton")
+                    item.Size = UDim2.new(1, -4, 0, 25)
+                    item.BackgroundColor3 = Color3.fromRGB(29, 29, 33)
+                    item.BorderSizePixel = 0
+                    item.Font = FONT_MAIN
+                    item.Text = configName
+                    item.TextColor3 = Color3.fromRGB(225, 225, 230)
+                    item.TextSize = 10
+                    item.LayoutOrder = order
+                    item.ZIndex = 41
+                    item.Parent = characterConfigList
+                    item.MouseButton1Click:Connect(function()
+                        characterConfigSelectedName = configName
+                        characterConfigSelected.Text = configName .. "  ▼"
+                        characterConfigNameBox.Text = configName
+                        characterConfigList.Visible = false
+                        characterConfigList.Size = UDim2.new(1, -20, 0, 0)
+                    end)
+                end
+            end
+        end
+
+        characterConfigSelected.MouseButton1Click:Connect(function()
+            local open = not characterConfigList.Visible
+            characterConfigList.Visible = open
+            characterConfigList.Size = UDim2.new(1, -20, 0, open and 100 or 0)
+            characterConfigSelected.Text = (characterConfigActiveName ~= "" and characterConfigActiveName or "Select character config") .. (open and "  ▲" or "  ▼")
+            if open then characterConfigRefreshList() end
+        end)
+
+        local function characterConfigGather()
+            local accessoryData = {}
+            for key, enabled in pairs(selectedAccessories) do
+                if enabled then accessoryData[key] = true end
+            end
+            local emote = _G.__PrivateHubEmoteState or {}
+            return {
+                selectedAccessories = accessoryData,
+                stripOriginalAppearance = _G.__PHStripOriginalAppearance == true,
+                shirtId = math.max(0, tonumber(shirtBox.Text) or tonumber(savedShirt) or 0),
+                pantsId = math.max(0, tonumber(pantsBox.Text) or tonumber(savedPants) or 0),
+                headless = _G.__PHHeadlessEnabled == true,
+                rightKorblox = _G.__PHRightKorbloxEnabled == true,
+                leftKorblox = _G.__PHLeftKorbloxEnabled == true,
+                emoteSelectedName = emote.SelectedName or ((_G.__PrivateHubEmoteList or {})[1] and _G.__PrivateHubEmoteList[1][1] or "scenario"),
+                emoteSelectedId = emote.SelectedId or ((_G.__PrivateHubEmoteList or {})[1] and _G.__PrivateHubEmoteList[1][2] or ""),
+                emoteManualEnabled = emote.ManualEnabled == true,
+                emoteAutoEnabled = emote.AutoEnabled == true,
+                emoteKeyCode = emote.KeyCode or "G"
+            }
+        end
+
+        local function characterConfigSave(name, silent)
+            name = tostring(name or ""):gsub("^%s+", ""):gsub("%s+$", "")
+            if name == "" or not writefile then return false end
+            name = name:gsub("[/\\:*?\"<>|]", "_")
+            if name == "" then return false end
+            local ok, json = pcall(function()
+                return HttpService:JSONEncode(characterConfigGather())
+            end)
+            if not ok then return false end
+            local path = characterConfigFolder .. "/" .. name .. ".txt"
+            local saved = pcall(function()
+                writefile(path, json)
+                writefile(characterConfigLastPath, name)
+            end)
+            if not saved then return false end
+            characterConfigActiveName = name
+            characterConfigSelectedName = name
+            characterConfigNameBox.Text = name
+            characterConfigSelected.Text = name .. "  ▼"
+            characterConfigLastJson = json
+            if not silent then showNotification("Character Config", "Saved: " .. name) end
+            return true
+        end
+
+        local function characterConfigApply(data)
+            if type(data) ~= "table" then return false end
+            characterConfigLoading = true
+            for key in pairs(accessorySpecs) do
+                local enabled = data.selectedAccessories and data.selectedAccessories[key] == true
+                selectedAccessories[key] = enabled and true or nil
+                if enabled then applyAccessory(LocalPlayer.Character, key) else removeAccessory(LocalPlayer.Character, key) end
+            end
+            local count = 0
+            for key, enabled in pairs(selectedAccessories) do
+                if enabled then count = count + 1 end
+            end
+            avatarDropdown.Text = "Accessories selected: " .. count .. "  ▼"
+            for _, option in ipairs(avatarOptions:GetChildren()) do
+                if option:IsA("TextButton") then
+                    for key in pairs(accessorySpecs) do
+                        if option.Text:find(key, 1, true) then
+                            local enabled = selectedAccessories[key] == true
+                            option.Text = (enabled and "✓  " or "＋  ") .. key
+                            option.BackgroundColor3 = enabled and Color3.fromRGB(38,75,52) or Color3.fromRGB(29,29,33)
+                            break
+                        end
+                    end
+                end
+            end
+
+            _G.__PHStripOriginalAppearance = data.stripOriginalAppearance == true
+            stripEnabled = _G.__PHStripOriginalAppearance
+            stripButton.Text = stripEnabled and "ON" or "OFF"
+            stripButton.BackgroundColor3 = stripEnabled and Color3.fromRGB(40,120,65) or Color3.fromRGB(100,40,40)
+
+            savedShirt = math.max(0, tonumber(data.shirtId) or 0)
+            savedPants = math.max(0, tonumber(data.pantsId) or 0)
+            _G.__PHShirtId = savedShirt
+            _G.__PHPantsId = savedPants
+            shirtBox.Text = tostring(savedShirt)
+            pantsBox.Text = tostring(savedPants)
+
+            _G.__PHHeadlessEnabled = data.headless == true
+            _G.__PHRightKorbloxEnabled = data.rightKorblox == true
+            _G.__PHLeftKorbloxEnabled = data.leftKorblox == true
+            for _, button in ipairs(specialSection:GetChildren()) do
+                if button:IsA("TextButton") then
+                    local globalKey = button:GetAttribute("PHCharacterGlobalKey")
+                    if globalKey then
+                        button.Text = button:GetAttribute("PHCharacterLabel") .. ": " .. (_G[globalKey] and "ON" or "OFF")
+                        button.BackgroundColor3 = _G[globalKey] and Color3.fromRGB(40,120,65) or Color3.fromRGB(100,40,40)
+                    end
+                end
+            end
+
+            local emote = _G.__PrivateHubEmoteState or {}
+            local chosenId = data.emoteSelectedId
+            local chosenName = data.emoteSelectedName
+            for _, entry in ipairs(_G.__PrivateHubEmoteList or {}) do
+                if entry[2] == chosenId or entry[1] == chosenName then
+                    emote.SelectedId = entry[2]
+                    emote.SelectedName = entry[1]
+                    if _G.__PrivateHubEmoteDropdownButton then _G.__PrivateHubEmoteDropdownButton.Text = entry[1] .. "  ▼" end
+                    break
+                end
+            end
+            emote.KeyCode = tostring(data.emoteKeyCode or "G")
+            if _G.__PrivateHubEmoteKeyButton then
+                _G.__PrivateHubEmoteKeyButton.Text = "Emote Key: " .. emote.KeyCode .. "  (click to change)"
+            end
+            if CheckboxSetters["EmoteManual"] then
+                CheckboxSetters["EmoteManual"](data.emoteManualEnabled == true, true)
+            end
+            if CheckboxSetters["EmoteAuto"] then
+                CheckboxSetters["EmoteAuto"](data.emoteAutoEnabled == true, true)
+            end
+
+            stripOriginalAppearance(LocalPlayer.Character)
+            applyClothing(LocalPlayer.Character)
+            applySpecialAppearance(LocalPlayer.Character)
+            characterConfigLoading = false
+            return true
+        end
+
+        local function characterConfigLoad(name)
+            if not readfile then return false end
+            local path = characterConfigFolder .. "/" .. tostring(name) .. ".txt"
+            local ok, content = pcall(function() return readfile(path) end)
+            if not ok or type(content) ~= "string" then return false end
+            local decoded, data = pcall(function() return HttpService:JSONDecode(content) end)
+            if not decoded or type(data) ~= "table" then return false end
+            if not characterConfigApply(data) then return false end
+            characterConfigActiveName = tostring(name)
+            characterConfigSelectedName = characterConfigActiveName
+            characterConfigNameBox.Text = characterConfigActiveName
+            characterConfigSelected.Text = characterConfigActiveName .. "  ▼"
+            characterConfigLastJson = content
+            pcall(function() writefile(characterConfigLastPath, characterConfigActiveName) end)
+            return true
+        end
+
+        local function makeCharacterConfigButton(label, x, width, callback, color)
+            local button = Instance.new("TextButton")
+            button.Size = UDim2.new(width, -4, 0, 28)
+            button.Position = UDim2.new(x, 0, 0, 145)
+            button.BackgroundColor3 = color or Color3.fromRGB(35, 55, 85)
+            button.BorderSizePixel = 0
+            button.Font = FONT_BOLD
+            button.Text = label
+            button.TextColor3 = Color3.new(1, 1, 1)
+            button.TextSize = 10
+            button.Parent = characterConfigSection
+            Instance.new("UICorner", button).CornerRadius = UDim.new(0, 4)
+            button.MouseButton1Click:Connect(callback)
+            return button
+        end
+
+        makeCharacterConfigButton("CREATE", 0.03, 0.30, function()
+            local name = characterConfigNameBox.Text
+            if characterConfigSave(name, false) then characterConfigRefreshList() end
+        end)
+        makeCharacterConfigButton("SAVE", 0.35, 0.30, function()
+            local name = characterConfigActiveName ~= "" and characterConfigActiveName or characterConfigNameBox.Text
+            if characterConfigSave(name, false) then characterConfigRefreshList() end
+        end, Color3.fromRGB(45, 105, 65))
+        makeCharacterConfigButton("LOAD", 0.67, 0.30, function()
+            local name = characterConfigSelectedName ~= "" and characterConfigSelectedName or (characterConfigActiveName ~= "" and characterConfigActiveName or characterConfigNameBox.Text)
+            if characterConfigLoad(name) then showNotification("Character Config", "Loaded: " .. name) end
+        end, Color3.fromRGB(45, 75, 115))
+
+        makeCharacterConfigButton("DELETE", 0.03, 0.30, function()
+            local name = characterConfigSelectedName ~= "" and characterConfigSelectedName or (characterConfigActiveName ~= "" and characterConfigActiveName or characterConfigNameBox.Text)
+            if name == "" or not delfile then return end
+            pcall(function() delfile(characterConfigFolder .. "/" .. name .. ".txt") end)
+            if characterConfigActiveName == name then
+                characterConfigActiveName = ""
+                characterConfigSelectedName = ""
+                characterConfigLastJson = ""
+                pcall(function()
+                    if delfile and isfile and isfile(characterConfigLastPath) then delfile(characterConfigLastPath) end
+                end)
+                characterConfigSelected.Text = "Select character config  ▼"
+            end
+            characterConfigRefreshList()
+            showNotification("Character Config", "Deleted: " .. name)
+        end, Color3.fromRGB(105, 45, 48))
+
+        makeCharacterConfigButton("REFRESH", 0.35, 0.30, characterConfigRefreshList)
+        makeCharacterConfigButton("OVERWRITE", 0.67, 0.30, function()
+            local name = characterConfigSelectedName ~= "" and characterConfigSelectedName or (characterConfigActiveName ~= "" and characterConfigActiveName or characterConfigNameBox.Text)
+            if characterConfigSave(name, false) then characterConfigRefreshList() end
+        end, Color3.fromRGB(45, 105, 65))
+
+        local characterConfigInfo = Instance.new("TextLabel")
+        characterConfigInfo.Name = "CharacterConfigInfo"
+        characterConfigInfo.Size = UDim2.new(1, -20, 0, 42)
+        characterConfigInfo.Position = UDim2.new(0, 10, 0, 181)
+        characterConfigInfo.BackgroundTransparency = 1
+        characterConfigInfo.Font = FONT_MAIN
+        characterConfigInfo.Text = "Character tab settings only. Changes are auto-saved to the active config."
+        characterConfigInfo.TextColor3 = Color3.fromRGB(155, 155, 163)
+        characterConfigInfo.TextSize = 10
+        characterConfigInfo.TextWrapped = true
+        characterConfigInfo.TextXAlignment = Enum.TextXAlignment.Left
+        characterConfigInfo.Parent = characterConfigSection
+
+        characterConfigRefreshList()
+        local lastCharacterConfigName = nil
+        if readfile and isfile and isfile(characterConfigLastPath) then
+            pcall(function() lastCharacterConfigName = readfile(characterConfigLastPath) end)
+        end
+        if type(lastCharacterConfigName) == "string" and lastCharacterConfigName ~= "" then
+            characterConfigLoad(lastCharacterConfigName)
+        end
+        if characterConfigActiveName == "" then
+            characterConfigSave("Default", true)
+            characterConfigLoad("Default")
+        end
+
+        -- 0.5秒ごとにCharacter専用の状態だけを比較し、変更分を自動保存。
+        task.spawn(function()
+            while characterConfigSection.Parent do
+                task.wait(0.5)
+                if not characterConfigLoading and characterConfigActiveName ~= "" then
+                    local ok, json = pcall(function()
+                        return HttpService:JSONEncode(characterConfigGather())
+                    end)
+                    if ok and json and json ~= characterConfigLastJson then
+                        characterConfigSave(characterConfigActiveName, true)
+                    end
+                end
+            end
+        end)
+
+        characterScroll.CanvasSize = UDim2.new(0,0,0,1430)
+    end
 end
 
 --------------------------------------------------
@@ -2622,7 +3360,7 @@ task.spawn(function()
         local count = 0
         for _, player in ipairs(Players:GetPlayers()) do
             if player ~= LocalPlayer then
-                count += 1
+                count = count + 1
                 local b = Instance.new("TextButton")
                 b.Size = UDim2.new(1, -4, 0, 27)
                 b.Position = UDim2.new(0, 2, 0, (count - 1) * 27)
