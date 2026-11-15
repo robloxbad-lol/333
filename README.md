@@ -5744,7 +5744,7 @@ _G.__PHLagPlayers = game:GetService("Players")
 _G.__PHLagLocalPlayer = _G.__PHLagPlayers.LocalPlayer
 
 _G.__PHLagSection = Instance.new("Frame")
-_G.__PHLagSection.Size = UDim2.new(0.92, 0, 0, 185)
+_G.__PHLagSection.Size = UDim2.new(0.92, 0, 0, 200)
 _G.__PHLagSection.Position = UDim2.new(0.04, 0, 0, 940)
 _G.__PHLagSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 _G.__PHLagSection.BorderSizePixel = 0
@@ -5762,12 +5762,26 @@ _G.__PHLagTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
 _G.__PHLagTitle.TextSize = 13
 _G.__PHLagTitle.Parent = _G.__PHLagSection
 
-_G.__PHAntiLagEnabled = false
-_G.__PHAntiLagLastNotify = 0
+-- Anti Lag runtime state. Keep it global so a script reload can preserve the toggle.
+_G.__PHAntiLagEnabled = _G.__PHAntiLagEnabled == true
+_G.__PHAutoAntiLagEnabled = _G.__PHAutoAntiLagEnabled == true
+_G.__PHAntiLagLastNotify = _G.__PHAntiLagLastNotify or 0
+_G.__PHAntiLagLastCleanup = 0
+_G.__PHAutoAntiLagLowFpsSamples = 0
+_G.__PHAutoAntiLagProjectileSamples = 0
 
 CheckboxSetters["AntiLag"] = createCheckboxToggle(_G.__PHLagSection, "Anti Lag", 38, function(enabled)
-    _G.__PHAntiLagEnabled = enabled
+    _G.__PHAntiLagEnabled = enabled == true
 end)
+
+CheckboxSetters["AutoAntiLag"] = createCheckboxToggle(_G.__PHLagSection, "Auto Anti Lag", 70, function(enabled)
+    _G.__PHAutoAntiLagEnabled = enabled == true
+    _G.__PHAutoAntiLagLowFpsSamples = 0
+    _G.__PHAutoAntiLagProjectileSamples = 0
+end)
+-- Reflect preserved runtime values in the newly-created checkboxes after script reload.
+if _G.__PHAntiLagEnabled then CheckboxSetters["AntiLag"](true, true) end
+if _G.__PHAutoAntiLagEnabled then CheckboxSetters["AutoAntiLag"](true, true) end
 
 -- Knife Lag の設定変数を統合
 _G.__PHKnifeLagEnabled = false
@@ -5822,11 +5836,11 @@ _G.__PHEquipKnife = function()
     end
 end
 
-CheckboxSetters["KnifeLag"] = createCheckboxToggle(_G.__PHLagSection, "Knife Lag (Server)", 72, function(enabled)
+CheckboxSetters["KnifeLag"] = createCheckboxToggle(_G.__PHLagSection, "Knife Lag (Server)", 102, function(enabled)
     _G.__PHKnifeLagEnabled = enabled
 end)
 
-SliderSetters["_G.__PHKnifeLagIntensity"] = createSliderRow(_G.__PHLagSection, "Server Load", 1, 100, _G.__PHKnifeLagIntensity, 108, function(val)
+SliderSetters["_G.__PHKnifeLagIntensity"] = createSliderRow(_G.__PHLagSection, "Server Load", 1, 100, _G.__PHKnifeLagIntensity, 138, function(val)
     _G.__PHKnifeLagIntensity = val
 end)
 
@@ -5862,7 +5876,7 @@ end)
 _G.__PHLagStatus = Instance.new("TextLabel")
 _G.__PHLagStatus.Name = "DynamicText"
 _G.__PHLagStatus.Size = UDim2.new(1, -20, 0, 28)
-_G.__PHLagStatus.Position = UDim2.new(0, 10, 0, 105)
+_G.__PHLagStatus.Position = UDim2.new(0, 10, 0, 168)
 _G.__PHLagStatus.BackgroundTransparency = 1
 _G.__PHLagStatus.Font = FONT_MONO
 _G.__PHLagStatus.TextColor3 = Color3.fromRGB(135, 135, 140)
@@ -5870,31 +5884,88 @@ _G.__PHLagStatus.TextSize = 10
 _G.__PHLagStatus.TextXAlignment = Enum.TextXAlignment.Left
 _G.__PHLagStatus.Parent = _G.__PHLagSection
 
-RunService.Heartbeat:Connect(function()
-    if not _G.__PHAntiLagEnabled then return end
-
-    local now = os.clock()
-    local knifeFolder = workspace:FindFirstChild("KnifeProjectile") or workspace:FindFirstChild("KnifeProjectiles")
-    if knifeFolder and #knifeFolder:GetChildren() >= 10 and now - _G.__PHAntiLagLastNotify >= 3 then
-        _G.__PHAntiLagLastNotify = now
-        pcall(function()
-            showNotification("Anti Lag", "Lag detected.")
-        end)
+-- Cheap event-based cleanup: avoid scanning every Workspace descendant every frame.
+-- New ThrowSound instances are filtered as they appear; projectile cleanup is throttled.
+workspace.DescendantAdded:Connect(function(desc)
+    if _G.__PHAntiLagEnabled and desc:IsA("Sound") and desc.Name == "ThrowSound" then
+        pcall(function() desc:Destroy() end)
     end
+end)
 
-    for _, child in ipairs(workspace:GetChildren()) do
-        if child.Name == "ShadowProjectile" then
-            for _, desc in ipairs(child:GetDescendants()) do
-                if desc:IsA("Sound") then
-                    pcall(function() desc:Destroy() end)
+-- Sample FPS and projectile count at a low fixed rate. Auto mode requires sustained lag
+-- to avoid toggling Anti Lag because of a single frame spike.
+task.spawn(function()
+    local frames = 0
+    local sampleElapsed = 0
+    local lastSample = os.clock()
+
+    local renderConnection = RunService.RenderStepped:Connect(function(dt)
+        frames = frames + 1
+        sampleElapsed = sampleElapsed + dt
+    end)
+
+    while true do
+        task.wait(0.5)
+        local now = os.clock()
+        local elapsed = math.max(now - lastSample, 0.001)
+        local fps = frames / elapsed
+        frames = 0
+        sampleElapsed = 0
+        lastSample = now
+
+        local knifeFolder = workspace:FindFirstChild("KnifeProjectile")
+            or workspace:FindFirstChild("KnifeProjectiles")
+        local projectileCount = knifeFolder and #knifeFolder:GetChildren() or 0
+
+        if _G.__PHAutoAntiLagEnabled and not _G.__PHAntiLagEnabled then
+            if fps < 35 then
+                _G.__PHAutoAntiLagLowFpsSamples = (_G.__PHAutoAntiLagLowFpsSamples or 0) + 1
+            else
+                _G.__PHAutoAntiLagLowFpsSamples = 0
+            end
+            if projectileCount >= 18 then
+                _G.__PHAutoAntiLagProjectileSamples = (_G.__PHAutoAntiLagProjectileSamples or 0) + 1
+            else
+                _G.__PHAutoAntiLagProjectileSamples = 0
+            end
+
+            if _G.__PHAutoAntiLagLowFpsSamples >= 3
+                or _G.__PHAutoAntiLagProjectileSamples >= 2 then
+                _G.__PHAntiLagEnabled = true
+                if CheckboxSetters["AntiLag"] then
+                    CheckboxSetters["AntiLag"](true, true)
                 end
+                _G.__PHAutoAntiLagLowFpsSamples = 0
+                _G.__PHAutoAntiLagProjectileSamples = 0
+                pcall(function() showNotification("Auto Anti Lag", "Lag detected - Anti Lag ON") end)
             end
         end
-    end
 
-    for _, desc in ipairs(workspace:GetDescendants()) do
-        if desc:IsA("Sound") and desc.Name == "ThrowSound" then
-            pcall(function() desc:Destroy() end)
+        if _G.__PHAntiLagEnabled then
+            -- Run cleanup no more than twice per second, and only inspect known projectile
+            -- containers rather than traversing all of Workspace:GetDescendants().
+            if now - (_G.__PHAntiLagLastCleanup or 0) >= 1 then
+                _G.__PHAntiLagLastCleanup = now
+                for _, child in ipairs(workspace:GetChildren()) do
+                    if child.Name == "ShadowProjectile" then
+                        for _, desc in ipairs(child:GetDescendants()) do
+                            if desc:IsA("Sound") then
+                                pcall(function() desc:Destroy() end)
+                            end
+                        end
+                    end
+                end
+            end
+
+            if projectileCount >= 10 and now - (_G.__PHAntiLagLastNotify or 0) >= 3 then
+                _G.__PHAntiLagLastNotify = now
+                pcall(function() showNotification("Anti Lag", "Projectile load detected.") end)
+            end
+            if _G.__PHLagStatus and _G.__PHLagStatus.Parent then
+                _G.__PHLagStatus.Text = string.format("Anti Lag: ON  |  FPS: %d  |  Projectiles: %d", math.floor(fps + 0.5), projectileCount)
+            end
+        elseif _G.__PHLagStatus and _G.__PHLagStatus.Parent then
+            _G.__PHLagStatus.Text = string.format("Anti Lag: OFF  |  FPS: %d  |  Projectiles: %d", math.floor(fps + 0.5), projectileCount)
         end
     end
 end)
@@ -6602,7 +6673,8 @@ Config_gatherSettingsData = function()
         rageKillTextColor = Config_colorToHex(_G.__PrivateHubRageTargetState.TextColor or Color3.fromRGB(255, 50, 50)),
 		slowKill = SlowKillEnabled,
 		autoEquip = AutoEquipEnabled,
-		antiLag = _G.__PHAntiLagEnabled == true
+		antiLag = _G.__PHAntiLagEnabled == true,
+		autoAntiLag = _G.__PHAutoAntiLagEnabled == true
 	}
 	return HttpService:JSONEncode(Config_data)
 end
@@ -6873,6 +6945,7 @@ Config_loadConfigByName = function(Config_cName)
                 end
 				if Config_data.autoEquip ~= nil and CheckboxSetters["AutoEquip"] then CheckboxSetters["AutoEquip"](Config_data.autoEquip, true) end
 				if Config_data.antiLag ~= nil and CheckboxSetters["AntiLag"] then CheckboxSetters["AntiLag"](Config_data.antiLag, true) end
+				if Config_data.autoAntiLag ~= nil and CheckboxSetters["AutoAntiLag"] then CheckboxSetters["AutoAntiLag"](Config_data.autoAntiLag, true) end
 
 				applyThemeColors()
 				
@@ -7116,6 +7189,8 @@ task.spawn(function()
         local myPos = myHRP.Position
         local targetCount = 0
 
+        -- 1 Heartbeatにつき3パス実行（60 FPSなら約180回/秒、144 FPSなら約432回/秒）
+        for _ = 1, 3 do
         for _, player in ipairs(Players:GetPlayers()) do
             if player ~= LocalPlayer then
                 local targetTeamName = GetPlayerTeam(player):lower()
@@ -7143,6 +7218,7 @@ task.spawn(function()
                 end
             end
         end
+        end -- 3-pass Heartbeat speed
 
         if _G.__PrivateHubRageTargetState.Enabled and _G.__PrivateHubRageTargetState.TargetName == "" then
             centerKillLabel.Text = "Rage Kill: Select Target"
