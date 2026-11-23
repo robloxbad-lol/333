@@ -135,10 +135,33 @@ end
 local SilentAimEnabled = false
 local AimbotEnabled = false
 local WallCheckEnabled = false
+local AutoTargetEnabled = false
 local FOV_RADIUS = 300
 local FOV_Color = Color3.fromRGB(255, 255, 255)
-local FOV_Rainbow = false
+local FOV_Rainbow = true -- 3色グラデーションを常時回転
 local FOV_Filled = false -- FOV円の内側を半透明で塗りつぶす
+local PHVisualStyle = _G.__PHVisualStyle or {
+    FOVThickness = 2, FOVOpacity = 0.20, FOVAnimSpeed = 0.5,
+    FOVColor2 = Color3.fromRGB(0, 170, 255), FOVColor3 = Color3.fromRGB(255, 0, 170),
+    ESPThickness = 1.5, ESPNameSize = 14, ESPRainbow = false, ESPTracerEnabled = false,
+    ESPTransparency = 1, ESPMaxDistance = 1000, ESPDistanceEnabled = true, ESPSkeletonEnabled = false,
+    CrosshairSize = 37, CrosshairGap = 21, CrosshairRotationSpeed = 250
+}
+_G.__PHVisualStyle = PHVisualStyle
+-- Tracers must start OFF on a fresh run; saved CONFIG can explicitly enable them later.
+PHVisualStyle.ESPTracerEnabled = false
+PHVisualStyle.FOVColor2 = PHVisualStyle.FOVColor2 or Color3.fromRGB(0, 170, 255)
+PHVisualStyle.FOVColor3 = PHVisualStyle.FOVColor3 or Color3.fromRGB(255, 0, 170)
+PHVisualStyle.ESPTransparency = PHVisualStyle.ESPTransparency or 1
+PHVisualStyle.ESPMaxDistance = PHVisualStyle.ESPMaxDistance or 1000
+if PHVisualStyle.ESPDistanceEnabled == nil then PHVisualStyle.ESPDistanceEnabled = true end
+if PHVisualStyle.ESPSkeletonEnabled == nil then PHVisualStyle.ESPSkeletonEnabled = false end
+_G.__PHVisualRuntime = _G.__PHVisualRuntime or {FOVSegments = {}}
+_G.__PHVisualRuntime.FOVSegments = {}
+for i = 1, 120 do
+    local ok, line = pcall(function() return Drawing.new("Line") end)
+    if ok and line then line.Visible = false; line.Thickness = 2; table.insert(_G.__PHVisualRuntime.FOVSegments, line) end
+end
 _G.__PrivateHubAutoShotState = _G.__PrivateHubAutoShotState or {Enabled = false, Cooldown = 0.5, LastShot = 0}
 
 -- ESP 関連変数
@@ -191,7 +214,7 @@ _G.__PrivateHubInformationState = _G.__PrivateHubInformationState or {
 -- World Changer (Atmosphere & Sky) 変数
 local WorldChangerEnabled = false
 _G.__PHWorldChangerColor = Color3.fromRGB(150, 0, 255)
-_G.__PHWeatherState = _G.__PHWeatherState or {Enabled = false, Type = "Rain", Snowflakes = {}, RainDrops = {}, LastSnow = 0, LastRain = 0, RainSound = nil}
+_G.__PHWeatherState = _G.__PHWeatherState or {Enabled = false, Type = "Rain", Snowflakes = {}, RainDrops = {}, LastSnow = 0, LastRain = 0, RainSound = nil, SnowColor = Color3.fromRGB(255,255,255), SnowSize = 0.25, SnowDensity = 3, SnowSpeed = 1, SnowWind = 1}
 local originalLightingState = {
 	Brightness = Lighting.Brightness,
 	Ambient = Lighting.Ambient,
@@ -213,7 +236,7 @@ local target_text = nil
 
 pcall(function()
 	fov_circle = Drawing.new("Circle")
-	fov_circle.Thickness = 2
+	fov_circle.Thickness = PHVisualStyle.FOVThickness
 	fov_circle.Visible = false
 	fov_circle.Filled = FOV_Filled
 	fov_circle.Transparency = 0.20
@@ -1244,11 +1267,12 @@ RunService.Heartbeat:Connect(function(dt)
     local now = tick()
     if now - (ws.LastSnow or 0) >= 0.08 then
         ws.LastSnow = now
-        for _ = 1, 3 do
+        for _ = 1, math.clamp(tonumber(ws.SnowDensity) or 3, 1, 8) do
             local p = Instance.new("Part")
             p.Shape = Enum.PartType.Ball
-            p.Size = Vector3.new(0.25, 0.25, 0.25)
-            p.Color = Color3.fromRGB(255, 255, 255)
+            local snowSize = math.clamp(tonumber(ws.SnowSize) or 0.25, 0.08, 1)
+            p.Size = Vector3.new(snowSize, snowSize, snowSize)
+            p.Color = ws.SnowColor or Color3.fromRGB(255, 255, 255)
             p.Material = Enum.Material.Neon
             p.Transparency = 0.3
             p.CanCollide = false
@@ -1258,7 +1282,7 @@ RunService.Heartbeat:Connect(function(dt)
             local pos = hrp.Position + Vector3.new(math.random(-60,60), math.random(35,50), math.random(-60,60))
             p.Position = pos
             p.Parent = workspace
-            table.insert(ws.Snowflakes, {Part=p, CurrentPos=pos, FallSpeed=math.random(4,7)/10, WindSpeedX=math.random(1,4)/10, WindSpeedZ=math.random(1,4)/10, DriftRange=math.random(30,50)/10, RandomOffset=math.random()*100, LifeTime=0})
+            table.insert(ws.Snowflakes, {Part=p, CurrentPos=pos, FallSpeed=(math.random(4,7)/10)*(tonumber(ws.SnowSpeed) or 1), WindSpeedX=(math.random(1,4)/10)*(tonumber(ws.SnowWind) or 1), WindSpeedZ=(math.random(1,4)/10)*(tonumber(ws.SnowWind) or 1), DriftRange=math.random(30,50)/10, RandomOffset=math.random()*100, LifeTime=0})
         end
     end
     local groundY = hrp.Position.Y - 5
@@ -2506,7 +2530,7 @@ local mainScroll = Instance.new("ScrollingFrame")
 mainScroll.Size = UDim2.new(1, 0, 1, 0)
 mainScroll.BackgroundTransparency = 1
 mainScroll.BorderSizePixel = 0
-mainScroll.CanvasSize = UDim2.new(0, 0, 0, 3385)
+mainScroll.CanvasSize = UDim2.new(0, 0, 0, 3550)
 mainScroll.ScrollBarThickness = 4
 mainScroll.ScrollingDirection = Enum.ScrollingDirection.Y
 mainScroll.ScrollingEnabled = true
@@ -3592,7 +3616,7 @@ do
 end
 
 local silentAimSection = Instance.new("Frame")
-silentAimSection.Size = UDim2.new(0.92, 0, 0, 400)
+silentAimSection.Size = UDim2.new(0.92, 0, 0, 640)
 silentAimSection.Position = UDim2.new(0.04, 0, 0, 2845)
 silentAimSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 silentAimSection.BorderSizePixel = 0
@@ -3626,30 +3650,37 @@ SliderSetters["FOVRadius"] = createSliderRow(silentAimSection, "FOV Radius", 10,
 	FOV_RADIUS = val
 end)
 
-local fovColorBtn = createColorPreviewRowInParent(silentAimSection, "FOV Color", FOV_Color, 192)
+local fovColorBtn = createColorPreviewRowInParent(silentAimSection, "FOV Color 1", FOV_Color, 192)
+ColorBtnSetters["FOVColor2"] = createColorPreviewRowInParent(silentAimSection, "FOV Color 2", PHVisualStyle.FOVColor2, 228)
+ColorBtnSetters["FOVColor3"] = createColorPreviewRowInParent(silentAimSection, "FOV Color 3", PHVisualStyle.FOVColor3, 264)
 ColorBtnSetters["FOVColor"] = fovColorBtn
 
-CheckboxSetters["FOVRainbow"] = createCheckboxToggle(silentAimSection, "Rainbow FOV", 232, function(enabled)
-	FOV_Rainbow = enabled
+-- 既存のRainbowトグルを維持。ONなら選択した3色のグラデーションが回転し、
+-- OFFならColor 1の単色表示。独立したマルチカラー切替は設けない。
+CheckboxSetters["FOVRainbow"] = createCheckboxToggle(silentAimSection, "Rainbow FOV", 300, function(enabled)
+    FOV_Rainbow = enabled == true
 end)
-
-CheckboxSetters["FOVFilled"] = createCheckboxToggle(silentAimSection, "Fill FOV", 268, function(enabled)
-	FOV_Filled = enabled
-	if fov_circle then
-		fov_circle.Filled = enabled
-		fov_circle.Transparency = enabled and 0.20 or 1
-	end
+CheckboxSetters["FOVRainbow"](FOV_Rainbow, true)
+CheckboxSetters["FOVFilled"] = createCheckboxToggle(silentAimSection, "Fill FOV", 336, function(enabled)
+    FOV_Filled = enabled
+    if fov_circle then fov_circle.Filled = enabled; fov_circle.Transparency = enabled and PHVisualStyle.FOVOpacity or 1 end
 end)
-
-CheckboxSetters["AutoShot"] = createCheckboxToggle(silentAimSection, "Auto Shot", 304, function(enabled)
+SliderSetters["FOVThickness"] = createSliderRow(silentAimSection, "FOV Thickness", 1, 8, PHVisualStyle.FOVThickness, 372, function(v) PHVisualStyle.FOVThickness = v end)
+SliderSetters["FOVOpacity"] = createSliderRow(silentAimSection, "FOV Fill Opacity", 0.05, 0.8, PHVisualStyle.FOVOpacity, 417, function(v) PHVisualStyle.FOVOpacity = v end)
+SliderSetters["FOVAnimSpeed"] = createSliderRow(silentAimSection, "FOV Rotation Speed", 0.1, 2, PHVisualStyle.FOVAnimSpeed, 462, function(v) PHVisualStyle.FOVAnimSpeed = v end)
+CheckboxSetters["AutoShot"] = createCheckboxToggle(silentAimSection, "Auto Shot", 507, function(enabled)
     _G.__PrivateHubAutoShotState.Enabled = enabled
     if not enabled then
         _G.__PrivateHubAutoShotState.LastShot = 0
     end
 end)
 
-SliderSetters["AutoShotCooldown"] = createSliderRow(silentAimSection, "Auto Shot Cooldown", 0.05, 5, _G.__PrivateHubAutoShotState.Cooldown, 340, function(val)
+SliderSetters["AutoShotCooldown"] = createSliderRow(silentAimSection, "Auto Shot Cooldown", 0.05, 5, _G.__PrivateHubAutoShotState.Cooldown, 542, function(val)
     _G.__PrivateHubAutoShotState.Cooldown = val
+end)
+
+CheckboxSetters["AutoTarget"] = createCheckboxToggle(silentAimSection, "Auto Target", 579, function(enabled)
+    AutoTargetEnabled = enabled == true
 end)
 
 --------------------------------------------------
@@ -3660,12 +3691,12 @@ local visualsScroll = Instance.new("ScrollingFrame")
 visualsScroll.Size = UDim2.new(1, 0, 1, 0)
 visualsScroll.BackgroundTransparency = 1
 visualsScroll.BorderSizePixel = 0
-visualsScroll.CanvasSize = UDim2.new(0, 0, 0, 610)
+visualsScroll.CanvasSize = UDim2.new(0, 0, 0, 960)
 visualsScroll.ScrollBarThickness = 2
 visualsScroll.Parent = visualsPage
 
 local espSection = Instance.new("Frame")
-espSection.Size = UDim2.new(0.92, 0, 0, 350)
+espSection.Size = UDim2.new(0.92, 0, 0, 690)
 espSection.Position = UDim2.new(0.04, 0, 0, 15)
 espSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 espSection.BorderSizePixel = 0
@@ -3690,6 +3721,10 @@ ColorBtnSetters["ESPColor"] = espColorBtn
 -- ESP オンオフ トグル
 CheckboxSetters["MVSD_ESP"] = createCheckboxToggle(espSection, "Enable Team ESP", 80, function(enabled)
 	MVSD_ESP_Enabled = enabled
+	if enabled then
+		PHVisualStyle.ESPTracerEnabled = false
+		if CheckboxSetters["ESPTracer"] then CheckboxSetters["ESPTracer"](false, true) end
+	end
 end)
 
 -- Server Desync Visualizer
@@ -3728,6 +3763,14 @@ CheckboxSetters["PlayerInformation"] = createCheckboxToggle(espSection, "Player 
         _G.__PHPlayerInfo.SetEnabled(enabled)
     end
 end)
+SliderSetters["ESPThickness"] = createSliderRow(espSection, "ESP Line Thickness", 1, 5, PHVisualStyle.ESPThickness, 345, function(v) PHVisualStyle.ESPThickness = v end)
+SliderSetters["ESPNameSize"] = createSliderRow(espSection, "ESP Name Size", 10, 24, PHVisualStyle.ESPNameSize, 390, function(v) PHVisualStyle.ESPNameSize = v end)
+CheckboxSetters["ESPRainbow"] = createCheckboxToggle(espSection, "Animated Rainbow ESP", 435, function(v) PHVisualStyle.ESPRainbow = v end)
+CheckboxSetters["ESPTracer"] = createCheckboxToggle(espSection, "Show ESP Tracers", 470, function(v) PHVisualStyle.ESPTracerEnabled = v end)
+SliderSetters["ESPTransparency"] = createSliderRow(espSection, "ESP Transparency (0=Clear, 1=Solid)", 0, 1, PHVisualStyle.ESPTransparency or 1, 505, function(v) PHVisualStyle.ESPTransparency = v end)
+SliderSetters["ESPMaxDistance"] = createSliderRow(espSection, "ESP Max Distance (studs)", 50, 2000, PHVisualStyle.ESPMaxDistance or 1000, 550, function(v) PHVisualStyle.ESPMaxDistance = math.floor(v) end)
+CheckboxSetters["ESPDistance"] = createCheckboxToggle(espSection, "Show Distance Under Player", 595, function(v) PHVisualStyle.ESPDistanceEnabled = v end)
+CheckboxSetters["ESPSkeleton"] = createCheckboxToggle(espSection, "Show Player Skeleton", 630, function(v) PHVisualStyle.ESPSkeletonEnabled = v end)
 
 -- Server Desync Visualizer runtime
 function ServerDesync_ClearFake()
@@ -3879,7 +3922,7 @@ end
 local appearanceSection = Instance.new("Frame")
 appearanceSection.Name = "AppearanceSection"
 appearanceSection.Size = UDim2.new(0.92, 0, 0, 195)
-appearanceSection.Position = UDim2.new(0.04, 0, 0, 380)
+appearanceSection.Position = UDim2.new(0.04, 0, 0, 720)
 appearanceSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 appearanceSection.BorderSizePixel = 0
 appearanceSection.Parent = visualsScroll
@@ -4314,12 +4357,17 @@ end
 local playerBoxes = {}
 local playerTracers = {}
 local playerLabels = {}
+_G.__PHESPExtras = _G.__PHESPExtras or {DistanceLabels = {}, Skeletons = {}}
+_G.__PHESPExtras.DistanceLabels = {}
+_G.__PHESPExtras.Skeletons = {}
+_G.__PHESPExtras.R15Segments = {{"Head","UpperTorso"},{"UpperTorso","LowerTorso"},{"LowerTorso","HumanoidRootPart"},{"UpperTorso","LeftUpperArm"},{"LeftUpperArm","LeftLowerArm"},{"LeftLowerArm","LeftHand"},{"UpperTorso","RightUpperArm"},{"RightUpperArm","RightLowerArm"},{"RightLowerArm","RightHand"},{"LowerTorso","LeftUpperLeg"},{"LeftUpperLeg","LeftLowerLeg"},{"LeftLowerLeg","LeftFoot"},{"LowerTorso","RightUpperLeg"},{"RightUpperLeg","RightLowerLeg"},{"RightLowerLeg","RightFoot"}}
+_G.__PHESPExtras.R6Segments = {{"Head","Torso"},{"Torso","HumanoidRootPart"},{"Torso","Left Arm"},{"Torso","Right Arm"},{"Torso","Left Leg"},{"Torso","Right Leg"}}
 
 local function InitializeESPForPlayer(v)
 	if v == LocalPlayer then return end
 
 	local box = Drawing.new("Square")
-	box.Thickness = 1.5
+	box.Thickness = PHVisualStyle.ESPThickness
 	box.Filled = false
 	box.Transparency = 1
 	box.Visible = false
@@ -4332,12 +4380,21 @@ local function InitializeESPForPlayer(v)
 	playerTracers[v] = tracer
 
 	local label = Drawing.new("Text")
-	label.Size = 14
+	label.Size = PHVisualStyle.ESPNameSize
 	label.Center = true
 	label.Outline = true
 	label.Transparency = 1
 	label.Visible = false
 	playerLabels[v] = label
+
+    local distLabel = Drawing.new("Text")
+    distLabel.Size = 13; distLabel.Center = true; distLabel.Outline = true; distLabel.Visible = false
+    _G.__PHESPExtras.DistanceLabels[v] = distLabel
+    _G.__PHESPExtras.Skeletons[v] = {}
+    for i = 1, 15 do
+        local ln = Drawing.new("Line"); ln.Thickness = 1.5; ln.Transparency = 1; ln.Visible = false
+        _G.__PHESPExtras.Skeletons[v][i] = ln
+    end
 end
 
 for _, v in pairs(Players:GetPlayers()) do InitializeESPForPlayer(v) end
@@ -4347,6 +4404,8 @@ Players.PlayerRemoving:Connect(function(v)
 	if playerBoxes[v] then playerBoxes[v]:Remove(); playerBoxes[v] = nil end
 	if playerTracers[v] then playerTracers[v]:Remove(); playerTracers[v] = nil end
 	if playerLabels[v] then playerLabels[v]:Remove(); playerLabels[v] = nil end
+    if _G.__PHESPExtras.DistanceLabels[v] then _G.__PHESPExtras.DistanceLabels[v]:Remove(); _G.__PHESPExtras.DistanceLabels[v] = nil end
+    if _G.__PHESPExtras.Skeletons[v] then for _, ln in ipairs(_G.__PHESPExtras.Skeletons[v]) do ln:Remove() end; _G.__PHESPExtras.Skeletons[v] = nil end
 end)
 
 
@@ -4365,6 +4424,8 @@ RunService.RenderStepped:Connect(function()
 			box.Visible = false
 			if playerTracers[v] then playerTracers[v].Visible = false end
 			if playerLabels[v] then playerLabels[v].Visible = false end
+            if _G.__PHESPExtras.DistanceLabels[v] then _G.__PHESPExtras.DistanceLabels[v].Visible = false end
+            if _G.__PHESPExtras.Skeletons[v] then for _, ln in ipairs(_G.__PHESPExtras.Skeletons[v]) do ln.Visible = false end end
 		end
 		return
 	end
@@ -4391,21 +4452,83 @@ RunService.RenderStepped:Connect(function()
 			activeTargetCount = activeTargetCount + 1
 			local rootPos, onScreen = Camera:WorldToViewportPoint(root.Position)
 
-			if onScreen then
+            local myCharacterForRange = LocalPlayer.Character
+            local myRootForRange = myCharacterForRange and myCharacterForRange:FindFirstChild("HumanoidRootPart")
+            -- 距離はカメラではなく、自分と相手のRootPart間のワールド座標距離。
+            local targetDistance = myRootForRange and (myRootForRange.Position - root.Position).Magnitude or math.huge
+            local withinESPRange = targetDistance <= (tonumber(PHVisualStyle.ESPMaxDistance) or 1000)
+            if onScreen and withinESPRange then
 				local sizeX = 2000 / rootPos.Z
 				local sizeY = 3000 / rootPos.Z
 
 				box.Size = Vector2.new(sizeX, sizeY)
 				box.Position = Vector2.new(rootPos.X - sizeX / 2, rootPos.Y - sizeY / 2)
-				box.Color = MVSD_ESP_Color
+				local espColor = PHVisualStyle.ESPRainbow and Color3.fromHSV((os.clock()*0.18)%1, 0.9, 1) or MVSD_ESP_Color
+                box.Thickness = PHVisualStyle.ESPThickness
+                box.Color = espColor
 				box.Visible = true
 
-				if label then
-					label.Text = v.Name
-					label.Position = Vector2.new(rootPos.X, rootPos.Y - (sizeY / 2) - 18)
-					label.Color = Color3.fromRGB(255, 255, 255)
-					label.Visible = true
-				end
+                local espAlpha = math.clamp(tonumber(PHVisualStyle.ESPTransparency) or 1, 0.1, 1)
+                box.Transparency = espAlpha
+                if label then
+                    label.Text = v.Name
+                    label.Size = PHVisualStyle.ESPNameSize
+                    label.Position = Vector2.new(rootPos.X, rootPos.Y - (sizeY / 2) - 18)
+                    label.Color = Color3.fromRGB(255, 255, 255)
+                    label.Transparency = espAlpha
+                    label.Visible = true
+                end
+
+                local myChar = LocalPlayer.Character
+                local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+                local realDistance = myRoot and (myRoot.Position - root.Position).Magnitude or math.huge
+                local withinDistance = realDistance <= (tonumber(PHVisualStyle.ESPMaxDistance) or 1000)
+                local distLabel = _G.__PHESPExtras.DistanceLabels[v]
+                if distLabel then
+                    distLabel.Visible = PHVisualStyle.ESPDistanceEnabled and withinDistance
+                    if distLabel.Visible then
+                        distLabel.Text = string.format("%.0f studs", realDistance)
+                        local leftFoot = char:FindFirstChild("LeftFoot") or char:FindFirstChild("Left Leg")
+                        local rightFoot = char:FindFirstChild("RightFoot") or char:FindFirstChild("Right Leg")
+                        local feetBottomY = rootPos.Y + (sizeY / 2)
+                        if leftFoot and leftFoot:IsA("BasePart") then
+                            local footBottom = leftFoot.Position - Vector3.new(0, leftFoot.Size.Y * 0.5, 0)
+                            local footPos = Camera:WorldToViewportPoint(footBottom)
+                            feetBottomY = math.max(feetBottomY, footPos.Y)
+                        end
+                        if rightFoot and rightFoot:IsA("BasePart") then
+                            local footBottom = rightFoot.Position - Vector3.new(0, rightFoot.Size.Y * 0.5, 0)
+                            local footPos = Camera:WorldToViewportPoint(footBottom)
+                            feetBottomY = math.max(feetBottomY, footPos.Y)
+                        end
+                        distLabel.Position = Vector2.new(rootPos.X, feetBottomY + 4)
+                        distLabel.Color = espColor
+                        distLabel.Transparency = espAlpha
+                    end
+                end
+
+                local skeleton = _G.__PHESPExtras.Skeletons[v]
+                if skeleton then
+                    local isR6 = char:FindFirstChild("Torso") ~= nil
+                    local pairsToDraw = isR6 and _G.__PHESPExtras.R6Segments or _G.__PHESPExtras.R15Segments
+                    for i, ln in ipairs(skeleton) do
+                        local pair = pairsToDraw[i]
+                        local partA = pair and char:FindFirstChild(pair[1])
+                        local partB = pair and char:FindFirstChild(pair[2])
+                        if PHVisualStyle.ESPSkeletonEnabled and withinDistance and partA and partB and partA:IsA("BasePart") and partB:IsA("BasePart") then
+                            local aPos, aOn = Camera:WorldToViewportPoint(partA.Position)
+                            local bPos, bOn = Camera:WorldToViewportPoint(partB.Position)
+                            ln.From = Vector2.new(aPos.X, aPos.Y)
+                            ln.To = Vector2.new(bPos.X, bPos.Y)
+                            ln.Color = espColor
+                            ln.Thickness = math.max(1, PHVisualStyle.ESPThickness)
+                            ln.Transparency = espAlpha
+                            ln.Visible = aOn and bOn
+                        else
+                            ln.Visible = false
+                        end
+                    end
+                end
 
 				local myChar = LocalPlayer.Character
 				local myHead = myChar and myChar:FindFirstChild("Head")
@@ -4413,21 +4536,27 @@ RunService.RenderStepped:Connect(function()
 					local startScreenPos = Camera:WorldToViewportPoint(myHead.Position)
 					tracer.From = Vector2.new(startScreenPos.X, startScreenPos.Y)
 					tracer.To = Vector2.new(rootPos.X, rootPos.Y)
-					tracer.Color = MVSD_ESP_Color
-					tracer.Visible = true
+					tracer.Color = espColor
+					tracer.Thickness = math.max(1, PHVisualStyle.ESPThickness-0.2)
+                    tracer.Transparency = espAlpha
+					tracer.Visible = MVSD_ESP_Enabled and PHVisualStyle.ESPTracerEnabled
 				elseif tracer then
 					tracer.Visible = false
 				end
 			else
 				box.Visible = false
 				if tracer then tracer.Visible = false end
-				if label then label.Visible = false end
-			end
-		else
-			box.Visible = false
-			if tracer then tracer.Visible = false end
-			if label then label.Visible = false end
-		end
+                if label then label.Visible = false end
+                if _G.__PHESPExtras.DistanceLabels[v] then _G.__PHESPExtras.DistanceLabels[v].Visible = false end
+                if _G.__PHESPExtras.Skeletons[v] then for _, ln in ipairs(_G.__PHESPExtras.Skeletons[v]) do ln.Visible = false end end
+            end
+        else
+            box.Visible = false
+            if tracer then tracer.Visible = false end
+            if label then label.Visible = false end
+            if _G.__PHESPExtras.DistanceLabels[v] then _G.__PHESPExtras.DistanceLabels[v].Visible = false end
+            if _G.__PHESPExtras.Skeletons[v] then for _, ln in ipairs(_G.__PHESPExtras.Skeletons[v]) do ln.Visible = false end end
+        end
 	end
 end)
 
@@ -4440,7 +4569,7 @@ local miscScroll = Instance.new("ScrollingFrame")
 miscScroll.Size = UDim2.new(1, 0, 1, 0)
 miscScroll.BackgroundTransparency = 1
 miscScroll.BorderSizePixel = 0
-miscScroll.CanvasSize = UDim2.new(0, 0, 0, 1850)
+miscScroll.CanvasSize = UDim2.new(0, 0, 0, 2350)
 miscScroll.ScrollBarThickness = 2
 miscScroll.Parent = miscPage
 
@@ -4692,7 +4821,7 @@ local worldChangerColorBtn = createColorPreviewRowInParent(worldChangerSection, 
 
 -- Weather Control セクション (他の項目と同じチェックボックスUI)
 local weatherSection = Instance.new("Frame")
-weatherSection.Size = UDim2.new(0.92, 0, 0, 175)
+weatherSection.Size = UDim2.new(0.92, 0, 0, 275)
 weatherSection.Position = UDim2.new(0.04, 0, 0, 595)
 weatherSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 weatherSection.BorderSizePixel = 0
@@ -4790,10 +4919,14 @@ if not _G.__PHWeatherState.RainSound or not _G.__PHWeatherState.RainSound.Parent
     _G.__PHWeatherState.RainSound = rs
 end
 
+SliderSetters["SnowDensity"] = createSliderRow(weatherSection, "Snow Density", 1, 8, _G.__PHWeatherState.SnowDensity or 3, 135, function(v) _G.__PHWeatherState.SnowDensity = math.floor(v) end)
+SliderSetters["SnowSize"] = createSliderRow(weatherSection, "Snowflake Size", 0.08, 1, _G.__PHWeatherState.SnowSize or 0.25, 180, function(v) _G.__PHWeatherState.SnowSize = v end)
+SliderSetters["SnowSpeed"] = createSliderRow(weatherSection, "Snow Fall Speed", 0.2, 3, _G.__PHWeatherState.SnowSpeed or 1, 225, function(v) _G.__PHWeatherState.SnowSpeed = v end)
+
 -- Minecraft Texture セクション
 local mcTextureSection = Instance.new("Frame")
 mcTextureSection.Size = UDim2.new(0.92, 0, 0, 95)
-mcTextureSection.Position = UDim2.new(0.04, 0, 0, 780)
+mcTextureSection.Position = UDim2.new(0.04, 0, 0, 880)
 mcTextureSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 mcTextureSection.BorderSizePixel = 0
 mcTextureSection.Parent = miscScroll
@@ -4878,8 +5011,8 @@ end)
 -- Custom Crosshair & Watermark セクション
 do
 local crosshairSection = Instance.new("Frame")
-crosshairSection.Size = UDim2.new(0.92, 0, 0, 250)
-crosshairSection.Position = UDim2.new(0.04, 0, 0, 890)
+crosshairSection.Size = UDim2.new(0.92, 0, 0, 430)
+crosshairSection.Position = UDim2.new(0.04, 0, 0, 990)
 crosshairSection.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 crosshairSection.BorderSizePixel = 0
 crosshairSection.Parent = miscScroll
@@ -4911,9 +5044,16 @@ _G.__PHCrosshairColorBtn:GetPropertyChangedSignal("BackgroundColor3"):Connect(fu
 	customCrosshairColor = _G.__PHCrosshairColorBtn.BackgroundColor3
 end)
 
+SliderSetters["CrosshairSize"] = createSliderRow(crosshairSection, "Crosshair Size", 18, 60, PHVisualStyle.CrosshairSize, 195, function(v)
+    PHVisualStyle.CrosshairSize = v
+    for _, item in ipairs(Lines) do item.Label.TextSize = v; if item.Glow then item.Glow.TextSize = v end end
+end)
+SliderSetters["CrosshairGap"] = createSliderRow(crosshairSection, "Crosshair Gap", 8, 45, PHVisualStyle.CrosshairGap, 240, function(v) PHVisualStyle.CrosshairGap = v end)
+SliderSetters["CrosshairRotation"] = createSliderRow(crosshairSection, "Rotation Speed", 0, 500, PHVisualStyle.CrosshairRotationSpeed, 285, function(v) PHVisualStyle.CrosshairRotationSpeed = v end)
+
 local textRow = Instance.new("Frame")
 textRow.Size = UDim2.new(1, -20, 0, 50)
-textRow.Position = UDim2.new(0, 10, 0, 155)
+textRow.Position = UDim2.new(0, 10, 0, 300)
 textRow.BackgroundTransparency = 1
 textRow.Parent = crosshairSection
 
@@ -4974,9 +5114,9 @@ RunService.RenderStepped:Connect(function()
 	CursorCenter.Position = UDim2.new(0, mousePos.X, 0, mousePos.Y)
 	
 	local time = os.clock()
-	RotationContainer.Rotation = (time * 250) % 360
+	RotationContainer.Rotation = (time * PHVisualStyle.CrosshairRotationSpeed) % 360
 	
-	local baseOffset = 21
+	local baseOffset = PHVisualStyle.CrosshairGap
 	local dynamicOffset = baseOffset + (math.sin(time * 5) * 4)
 	
 	local activeColor = customCrosshairColor
@@ -5060,7 +5200,7 @@ _G.__PHSetupEffectUI = function()
     local sec = Instance.new("Frame")
     sec.Name = "EffectSection"
     sec.Size = UDim2.new(0.92, 0, 0, 465)
-    sec.Position = UDim2.new(0.04, 0, 0, 1160)
+    sec.Position = UDim2.new(0.04, 0, 0, 1450)
     sec.BackgroundColor3 = Color3.fromRGB(16,16,18)
     sec.BorderSizePixel = 0
     sec.Parent = miscScroll
@@ -5232,6 +5372,10 @@ _G.__PHGunColorState = _G.__PHGunColorState or {
     SoundId = "rbxassetid://3442683707",
     LastShot = 0
 }
+_G.__PHGunColorState.Width = _G.__PHGunColorState.Width or 0.2
+_G.__PHGunColorState.Lifetime = math.clamp(tonumber(_G.__PHGunColorState.Lifetime) or 1.5, 0.1, 5)
+_G.__PHGunColorState.EndColor = _G.__PHGunColorState.EndColor or Color3.fromRGB(0, 245, 212)
+if _G.__PHGunColorState.Glow == nil then _G.__PHGunColorState.Glow = true end
 
 _G.__PHGunColorPlaySound = function()
     local st = _G.__PHGunColorState
@@ -5258,10 +5402,21 @@ _G.__PHGunColorTracer = function(startPos, endPos)
     part.Color = st.Color
     part.CanCollide = false
     part.Anchored = true
-    part.Size = Vector3.new(0.2, 0.2, dist)
+    part.Size = Vector3.new(math.clamp(tonumber(st.Width) or 0.2, 0.05, 1), math.clamp(tonumber(st.Width) or 0.2, 0.05, 1), dist)
     part.CFrame = CFrame.new(startPos:Lerp(endPos, 0.5), endPos)
     part.Parent = workspace
-    task.delay(1, function()
+    if st.Glow then
+        local light = Instance.new("PointLight")
+        light.Color = st.Color
+        light.Brightness = 1.5
+        light.Range = math.max(5, dist * 0.12)
+        light.Parent = part
+    end
+    -- 色は最後まで選択色を維持し、消える瞬間に水色へ変化させない。
+    -- 表示時間は最大5秒。フェードでは透明度だけを変化させる。
+    local life = math.clamp(tonumber(st.Lifetime) or 1.5, 0.1, 5)
+    TweenService:Create(part, TweenInfo.new(life, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Transparency = 1}):Play()
+    task.delay(life + 0.05, function()
         pcall(function() part:Destroy() end)
     end)
 end
@@ -5331,8 +5486,8 @@ do
     local ui = _G.__PHGunColorUI
     ui.section = Instance.new("Frame")
     ui.section.Name = "GUNcolorSection"
-    ui.section.Size = UDim2.new(0.92, 0, 0, 175)
-    ui.section.Position = UDim2.new(0.04, 0, 0, 1620)
+    ui.section.Size = UDim2.new(0.92, 0, 0, 310)
+    ui.section.Position = UDim2.new(0.04, 0, 0, 1940)
     ui.section.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
     ui.section.BorderSizePixel = 0
     ui.section.Parent = miscScroll
@@ -5384,6 +5539,10 @@ do
     addStroke(ui.soundBox, Color3.fromRGB(50, 50, 55), 0, 1)
     addPadding(ui.soundBox, 7)
 
+    SliderSetters["GUNTracerWidth"] = createSliderRow(ui.section, "Tracer Width", 0.05, 1, _G.__PHGunColorState.Width, 145, function(v) _G.__PHGunColorState.Width = v end)
+    SliderSetters["GUNTracerLifetime"] = createSliderRow(ui.section, "Tracer Lifetime (up to 5s)", 0.1, 5, _G.__PHGunColorState.Lifetime, 190, function(v) _G.__PHGunColorState.Lifetime = math.clamp(v, 0.1, 5) end)
+    CheckboxSetters["GUNTracerGlow"] = createCheckboxToggle(ui.section, "Tracer Glow", 235, function(v) _G.__PHGunColorState.Glow = v end)
+
     ui.soundBox.FocusLost:Connect(function()
         local id = ui.soundBox.Text
         if id ~= "" then
@@ -5411,27 +5570,32 @@ local function isVisible(targetPart)
 end
 
 local function getClosestToMouse()
-	local target, closestDist = nil, FOV_RADIUS
-	local mousePos = UserInputService:GetMouseLocation()
-	
-	for _, v in pairs(Players:GetPlayers()) do
-		if v ~= LocalPlayer and v.Character and v.Character:FindFirstChild("HumanoidRootPart") then
-			local hum = v.Character:FindFirstChild("Humanoid")
-			if hum and hum.Health > 0 then
-				local rootPart = v.Character.HumanoidRootPart
-				local screenPos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(rootPart.Position)
-				
-				if onScreen and isVisible(rootPart) then
-					local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
-					if dist < closestDist then
-						target = v
-						closestDist = dist
-					end
-				end
-			end
-		end
-	end
-	return target
+    -- Aim/FOV共通ターゲット: 画面上の近さではなく、プレイヤー同士のワールド距離で選ぶ
+    local myCharacter = LocalPlayer.Character
+    local myRoot = myCharacter and myCharacter:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return nil end
+
+    local target, closestDist = nil, math.huge
+    local camera = workspace.CurrentCamera
+    if not camera then return nil end
+
+    for _, v in ipairs(Players:GetPlayers()) do
+        if v ~= LocalPlayer and v.Character then
+            local hum = v.Character:FindFirstChildOfClass("Humanoid")
+            local rootPart = v.Character:FindFirstChild("HumanoidRootPart")
+            if hum and hum.Health > 0 and rootPart then
+                local _, onScreen = camera:WorldToViewportPoint(rootPart.Position)
+                if onScreen and isVisible(rootPart) then
+                    local dist = (rootPart.Position - myRoot.Position).Magnitude
+                    if dist < closestDist then
+                        target = v
+                        closestDist = dist
+                    end
+                end
+            end
+        end
+    end
+    return target
 end
 
 -- Auto Shot専用: 壁越しのターゲットは常に無視する
@@ -5450,43 +5614,52 @@ local function isAutoShotVisible(targetPart)
 end
 
 local function getAutoShotTarget()
-    local target, closestDist = nil, FOV_RADIUS
-    local mousePos = UserInputService:GetMouseLocation()
-    local myTeamName = GetPlayerTeam(LocalPlayer):lower()
+    -- FOV Auto Target: ESPと同じTeam1/Team2 + Match Workspace判定で敵を絞り、
+    -- FOV円内にいて、壁に遮られていない敵のうちマウスに最も近い相手を選ぶ。
+    local camera = workspace.CurrentCamera
+    if not camera then return nil end
 
-    -- ESPと完全に同じ Team1 / Team2 + Workspace 判定
+    local myTeamName = GetPlayerTeam(LocalPlayer):lower()
     if myTeamName ~= "team1" and myTeamName ~= "team2" then
         return nil
     end
 
-    for _, v in ipairs(Players:GetPlayers()) do
-        if v ~= LocalPlayer and v.Character then
-            local targetTeamName = GetPlayerTeam(v):lower()
-            local isEnemy = false
+    local mousePos = UserInputService:GetMouseLocation()
+    local target, closestScreenDist = nil, FOV_RADIUS
 
-            if (targetTeamName == "team1" or targetTeamName == "team2")
-                and myTeamName ~= targetTeamName then
-                if IsInSameMatchWorkspace(v) then
-                    isEnemy = true
+    for _, v in ipairs(Players:GetPlayers()) do
+        if v ~= LocalPlayer then
+            local char = v.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            local hum = char and char:FindFirstChild("Humanoid")
+            local targetTeamName = GetPlayerTeam(v):lower()
+
+            -- ESP本体と同一の敵条件。別マッチのTeam1/Team2は対象にしない。
+            local isEnemy = false
+            if targetTeamName == "team1" or targetTeamName == "team2" then
+                if myTeamName ~= targetTeamName then
+                    if IsInSameMatchWorkspace(v) then
+                        isEnemy = true
+                    end
                 end
             end
 
-            if isEnemy then
-                local hum = v.Character:FindFirstChildOfClass("Humanoid")
-                local root = v.Character:FindFirstChild("HumanoidRootPart")
-                if hum and hum.Health > 0 and root then
-                    local screenPos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(root.Position)
-                    if onScreen and isAutoShotVisible(root) then
-                        local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
-                        if dist <= closestDist then
+            if isEnemy and char and root and hum and hum.Health > 0 then
+                local screenPos, onScreen = camera:WorldToViewportPoint(root.Position)
+                if onScreen then
+                    local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                    if screenDist <= FOV_RADIUS and screenDist < closestScreenDist then
+                        -- FOV Auto TargetはWallCheck設定に依存せず、遮蔽物越しを選ばない。
+                        if isAutoShotVisible(root) then
                             target = v
-                            closestDist = dist
+                            closestScreenDist = screenDist
                         end
                     end
                 end
             end
         end
     end
+
     return target
 end
 
@@ -5523,31 +5696,69 @@ RunService.RenderStepped:Connect(function()
 	if fov_circle and target_text then
 		if SilentAimEnabled then
 			local mouseLoc = UserInputService:GetMouseLocation()
+            local target = AutoTargetEnabled and getAutoShotTarget() or getClosestToMouse()
+            local fovCenter = mouseLoc
+            if AutoTargetEnabled and target and target.Character then
+                local targetRoot = target.Character:FindFirstChild("HumanoidRootPart")
+                local camera = workspace.CurrentCamera
+                if targetRoot and camera then
+                    local targetScreen, targetOnScreen = camera:WorldToViewportPoint(targetRoot.Position)
+                    if targetOnScreen then
+                        fovCenter = Vector2.new(targetScreen.X, targetScreen.Y)
+                    end
+                end
+            end
 			fov_circle.Visible = true
-			fov_circle.Position = mouseLoc
+			fov_circle.Position = fovCenter
 			fov_circle.Radius = FOV_RADIUS
+            fov_circle.Thickness = PHVisualStyle.FOVThickness
 			fov_circle.Filled = FOV_Filled
-			fov_circle.Transparency = FOV_Filled and 0.20 or 1
+			fov_circle.Transparency = FOV_Filled and PHVisualStyle.FOVOpacity or 1
 			
-			if FOV_Rainbow then
-				fov_circle.Color = Color3.fromHSV((os.clock() * 0.5) % 1, 1, 1)
-			else
-				fov_circle.Color = fovColorBtn.BackgroundColor3
-			end
+            if FOV_Rainbow and #_G.__PHVisualRuntime.FOVSegments > 0 then
+                fov_circle.Visible = FOV_Filled
+                fov_circle.Filled = true
+                fov_circle.Color = fovColorBtn.BackgroundColor3
+                fov_circle.Transparency = FOV_Filled and PHVisualStyle.FOVOpacity or 1
+                local radius = FOV_RADIUS
+                local rotation = (os.clock() * PHVisualStyle.FOVAnimSpeed * math.pi * 2) % (math.pi * 2)
+                local c1, c2, c3 = fovColorBtn.BackgroundColor3, ColorBtnSetters["FOVColor2"].BackgroundColor3, ColorBtnSetters["FOVColor3"].BackgroundColor3
+                local function mixColor(a, b, t) return a:Lerp(b, math.clamp(t, 0, 1)) end
+                local count = #_G.__PHVisualRuntime.FOVSegments
+                for i, seg in ipairs(_G.__PHVisualRuntime.FOVSegments) do
+                    local a0 = ((i-1)/count)*math.pi*2 + rotation
+                    local a1 = (i/count)*math.pi*2 + rotation
+                    local phase = (((i-1)/count)*3) % 3
+                    local col
+                    if phase < 1 then col = mixColor(c1, c2, phase)
+                    elseif phase < 2 then col = mixColor(c2, c3, phase-1)
+                    else col = mixColor(c3, c1, phase-2) end
+                    seg.From = fovCenter + Vector2.new(math.cos(a0)*radius, math.sin(a0)*radius)
+                    seg.To = fovCenter + Vector2.new(math.cos(a1)*radius, math.sin(a1)*radius)
+                    seg.Color = col
+                    seg.Thickness = PHVisualStyle.FOVThickness
+                    seg.Transparency = 1
+                    seg.Visible = true
+                end
+            else
+                for _, seg in ipairs(_G.__PHVisualRuntime.FOVSegments) do seg.Visible = false end
+                fov_circle.Visible = true
+                fov_circle.Color = FOV_Rainbow and Color3.fromHSV((os.clock()*PHVisualStyle.FOVAnimSpeed)%1, 1, 1) or fovColorBtn.BackgroundColor3
+            end
 
-			local target = getClosestToMouse()
 			if target and target.Name then
 				target_text.Visible = true
 				target_text.Text = "Target: " .. target.Name
-				target_text.Position = mouseLoc + Vector2.new(0, FOV_RADIUS + 10)
+				target_text.Position = fovCenter + Vector2.new(0, FOV_RADIUS + 10)
 				target_text.Color = _G.__PrivateHubTextColor
 			else
 				target_text.Visible = false
 			end
 		else
-			fov_circle.Visible = false
-			target_text.Visible = false
-		end
+            fov_circle.Visible = false
+            for _, seg in ipairs(_G.__PHVisualRuntime.FOVSegments) do seg.Visible = false end
+            target_text.Visible = false
+        end
 	end
 end)
 
@@ -6382,8 +6593,12 @@ while __Palette.i <= #__Palette.colors do
 				target.BackgroundColor3 = selectedColor
 
 				if target == fovColorBtn then
-					FOV_Color = selectedColor
-				elseif target == espColorBtn then
+                    FOV_Color = selectedColor
+                elseif target == ColorBtnSetters["FOVColor2"] then
+                    PHVisualStyle.FOVColor2 = selectedColor
+                elseif target == ColorBtnSetters["FOVColor3"] then
+                    PHVisualStyle.FOVColor3 = selectedColor
+                elseif target == espColorBtn then
 					MVSD_ESP_Color = selectedColor
 				elseif target == serverDesyncColorBtn then
 					ServerDesync_Color = selectedColor
@@ -6418,6 +6633,8 @@ _G.__PHAccentColorBtn.MouseButton1Click:Connect(function() openPalette(_G.__PHAc
 _G.__PHTextColorBtn.MouseButton1Click:Connect(function() openPalette(_G.__PHTextColorBtn) end)
 if _G.__PHGunColorBtn then _G.__PHGunColorBtn.MouseButton1Click:Connect(function() openPalette(_G.__PHGunColorBtn) end) end
 fovColorBtn.MouseButton1Click:Connect(function() openPalette(fovColorBtn) end)
+ColorBtnSetters["FOVColor2"].MouseButton1Click:Connect(function() openPalette(ColorBtnSetters["FOVColor2"]) end)
+ColorBtnSetters["FOVColor3"].MouseButton1Click:Connect(function() openPalette(ColorBtnSetters["FOVColor3"]) end)
 worldChangerColorBtn.MouseButton1Click:Connect(function() openPalette(worldChangerColorBtn) end)
 _G.__PHCrosshairColorBtn.MouseButton1Click:Connect(function() openPalette(_G.__PHCrosshairColorBtn) end)
 espColorBtn.MouseButton1Click:Connect(function() openPalette(espColorBtn) end)
@@ -6603,8 +6820,12 @@ Config_gatherSettingsData = function()
 		wallCheck = WallCheckEnabled,
 		fovRadius = FOV_RADIUS,
 		fovColor = Config_colorToHex(fovColorBtn.BackgroundColor3),
+        fovColor2 = Config_colorToHex(ColorBtnSetters["FOVColor2"].BackgroundColor3),
+        fovColor3 = Config_colorToHex(ColorBtnSetters["FOVColor3"].BackgroundColor3),
+        fovThreeColor = FOV_Rainbow,
 		fovRainbow = FOV_Rainbow,
 		fovFilled = FOV_Filled,
+        autoTarget = AutoTargetEnabled == true,
 		autoShot = _G.__PrivateHubAutoShotState.Enabled == true,
 		autoShotCooldown = _G.__PrivateHubAutoShotState.Cooldown or 0.5,
 		playerInfoEnabled = _G.__PHPlayerInfo and _G.__PHPlayerInfo.Enabled == true or false,
@@ -6614,6 +6835,11 @@ Config_gatherSettingsData = function()
         playerInfoYOffset = _G.__PHPlayerInfo and _G.__PHPlayerInfo.Position and _G.__PHPlayerInfo.Position.Y.Offset or 145,
 		mvsdEspEnabled = MVSD_ESP_Enabled,
 		mvsdEspColor = Config_colorToHex(espColorBtn.BackgroundColor3),
+        espTransparency = PHVisualStyle.ESPTransparency,
+        espMaxDistance = PHVisualStyle.ESPMaxDistance,
+        espDistanceEnabled = PHVisualStyle.ESPDistanceEnabled,
+        espSkeletonEnabled = PHVisualStyle.ESPSkeletonEnabled,
+        espTracerEnabled = PHVisualStyle.ESPTracerEnabled,
 		serverDesyncEnabled = ServerDesync_Enabled,
 		serverDesyncColor = Config_colorToHex(serverDesyncColorBtn.BackgroundColor3),
 		hitboxEnabled = Hitbox_Enabled,
@@ -6769,14 +6995,22 @@ Config_loadConfigByName = function(Config_cName)
 				if Config_data.aimbot ~= nil and CheckboxSetters["Aimbot"] then CheckboxSetters["Aimbot"](Config_data.aimbot, true) end
 				if Config_data.wallCheck ~= nil and CheckboxSetters["WallCheck"] then CheckboxSetters["WallCheck"](Config_data.wallCheck, true) end
 				if Config_data.fovRadius and SliderSetters["FOVRadius"] then SliderSetters["FOVRadius"](Config_data.fovRadius) end
-				if Config_data.fovColor then fovColorBtn.BackgroundColor3 = Config_hexToColor(Config_data.fovColor) end
+				if Config_data.fovColor then fovColorBtn.BackgroundColor3 = Config_hexToColor(Config_data.fovColor); FOV_Color = fovColorBtn.BackgroundColor3 end
+                if Config_data.fovColor2 then ColorBtnSetters["FOVColor2"].BackgroundColor3 = Config_hexToColor(Config_data.fovColor2); PHVisualStyle.FOVColor2 = ColorBtnSetters["FOVColor2"].BackgroundColor3 end
+                if Config_data.fovColor3 then ColorBtnSetters["FOVColor3"].BackgroundColor3 = Config_hexToColor(Config_data.fovColor3); PHVisualStyle.FOVColor3 = ColorBtnSetters["FOVColor3"].BackgroundColor3 end
 				if Config_data.fovRainbow ~= nil and CheckboxSetters["FOVRainbow"] then CheckboxSetters["FOVRainbow"](Config_data.fovRainbow, true) end
 				if Config_data.fovFilled ~= nil and CheckboxSetters["FOVFilled"] then CheckboxSetters["FOVFilled"](Config_data.fovFilled, true) end
+                if Config_data.autoTarget ~= nil and CheckboxSetters["AutoTarget"] then CheckboxSetters["AutoTarget"](Config_data.autoTarget, true) end
 				if Config_data.autoShotCooldown and SliderSetters["AutoShotCooldown"] then SliderSetters["AutoShotCooldown"](Config_data.autoShotCooldown) end
 				if Config_data.autoShot ~= nil and CheckboxSetters["AutoShot"] then CheckboxSetters["AutoShot"](Config_data.autoShot, true) end
 
 				-- Team ESP 読み込み
 				if Config_data.mvsdEspEnabled ~= nil and CheckboxSetters["MVSD_ESP"] then CheckboxSetters["MVSD_ESP"](Config_data.mvsdEspEnabled, true) end
+                if Config_data.espTransparency and SliderSetters["ESPTransparency"] then SliderSetters["ESPTransparency"](Config_data.espTransparency) end
+                if Config_data.espMaxDistance and SliderSetters["ESPMaxDistance"] then SliderSetters["ESPMaxDistance"](Config_data.espMaxDistance) end
+                if Config_data.espDistanceEnabled ~= nil and CheckboxSetters["ESPDistance"] then CheckboxSetters["ESPDistance"](Config_data.espDistanceEnabled, true) end
+                if Config_data.espSkeletonEnabled ~= nil and CheckboxSetters["ESPSkeleton"] then CheckboxSetters["ESPSkeleton"](Config_data.espSkeletonEnabled, true) end
+                if Config_data.espTracerEnabled ~= nil and CheckboxSetters["ESPTracer"] then CheckboxSetters["ESPTracer"](Config_data.espTracerEnabled, true) end
                 if _G.__PHPlayerInfo and Config_data.playerInfoXOffset ~= nil then
                     _G.__PHPlayerInfo.Position = UDim2.new(
                         tonumber(Config_data.playerInfoXScale) or 1,
@@ -7407,7 +7641,7 @@ combatSection.Parent = mainScroll
 Instance.new("UICorner", combatSection).CornerRadius = UDim.new(0, 6)
 addStroke(combatSection, Color3.fromRGB(40, 40, 45), 0, 1)
 
-mainScroll.CanvasSize = UDim2.new(0, 0, 0, 3385)
+mainScroll.CanvasSize = UDim2.new(0, 0, 0, 3550)
 
 local combatTitle = Instance.new("TextLabel")
 combatTitle.Name = "DynamicText"
