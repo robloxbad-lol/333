@@ -5614,52 +5614,43 @@ local function isAutoShotVisible(targetPart)
 end
 
 local function getAutoShotTarget()
-    -- FOV Auto Target: ESPと同じTeam1/Team2 + Match Workspace判定で敵を絞り、
-    -- FOV円内にいて、壁に遮られていない敵のうちマウスに最も近い相手を選ぶ。
-    local camera = workspace.CurrentCamera
-    if not camera then return nil end
-
+    local target, closestDist = nil, FOV_RADIUS
+    local mousePos = UserInputService:GetMouseLocation()
     local myTeamName = GetPlayerTeam(LocalPlayer):lower()
+
+    -- ESPと完全に同じ Team1 / Team2 + Workspace 判定
     if myTeamName ~= "team1" and myTeamName ~= "team2" then
         return nil
     end
 
-    local mousePos = UserInputService:GetMouseLocation()
-    local target, closestScreenDist = nil, FOV_RADIUS
-
     for _, v in ipairs(Players:GetPlayers()) do
-        if v ~= LocalPlayer then
-            local char = v.Character
-            local root = char and char:FindFirstChild("HumanoidRootPart")
-            local hum = char and char:FindFirstChild("Humanoid")
+        if v ~= LocalPlayer and v.Character then
             local targetTeamName = GetPlayerTeam(v):lower()
-
-            -- ESP本体と同一の敵条件。別マッチのTeam1/Team2は対象にしない。
             local isEnemy = false
-            if targetTeamName == "team1" or targetTeamName == "team2" then
-                if myTeamName ~= targetTeamName then
-                    if IsInSameMatchWorkspace(v) then
-                        isEnemy = true
-                    end
+
+            if (targetTeamName == "team1" or targetTeamName == "team2")
+                and myTeamName ~= targetTeamName then
+                if IsInSameMatchWorkspace(v) then
+                    isEnemy = true
                 end
             end
 
-            if isEnemy and char and root and hum and hum.Health > 0 then
-                local screenPos, onScreen = camera:WorldToViewportPoint(root.Position)
-                if onScreen then
-                    local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
-                    if screenDist <= FOV_RADIUS and screenDist < closestScreenDist then
-                        -- FOV Auto TargetはWallCheck設定に依存せず、遮蔽物越しを選ばない。
-                        if isAutoShotVisible(root) then
+            if isEnemy then
+                local hum = v.Character:FindFirstChildOfClass("Humanoid")
+                local root = v.Character:FindFirstChild("HumanoidRootPart")
+                if hum and hum.Health > 0 and root then
+                    local screenPos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(root.Position)
+                    if onScreen and isAutoShotVisible(root) then
+                        local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                        if dist <= closestDist then
                             target = v
-                            closestScreenDist = screenDist
+                            closestDist = dist
                         end
                     end
                 end
             end
         end
     end
-
     return target
 end
 
@@ -5696,7 +5687,7 @@ RunService.RenderStepped:Connect(function()
 	if fov_circle and target_text then
 		if SilentAimEnabled then
 			local mouseLoc = UserInputService:GetMouseLocation()
-            local target = AutoTargetEnabled and getAutoShotTarget() or getClosestToMouse()
+            local target = getClosestToMouse()
             local fovCenter = mouseLoc
             if AutoTargetEnabled and target and target.Character then
                 local targetRoot = target.Character:FindFirstChild("HumanoidRootPart")
@@ -6819,6 +6810,9 @@ Config_gatherSettingsData = function()
 		aimbot = AimbotEnabled,
 		wallCheck = WallCheckEnabled,
 		fovRadius = FOV_RADIUS,
+        fovThickness = PHVisualStyle.FOVThickness,
+        fovOpacity = PHVisualStyle.FOVOpacity,
+        fovAnimSpeed = PHVisualStyle.FOVAnimSpeed,
 		fovColor = Config_colorToHex(fovColorBtn.BackgroundColor3),
         fovColor2 = Config_colorToHex(ColorBtnSetters["FOVColor2"].BackgroundColor3),
         fovColor3 = Config_colorToHex(ColorBtnSetters["FOVColor3"].BackgroundColor3),
@@ -6868,6 +6862,9 @@ Config_gatherSettingsData = function()
 		customCrosshairEnabled = CustomCrosshairEnabled,
 		customCrosshairRainbow = CustomCrosshairRainbow,
 		customCrosshairColor = Config_colorToHex(customCrosshairColor),
+        crosshairSize = PHVisualStyle.CrosshairSize,
+        crosshairGap = PHVisualStyle.CrosshairGap,
+        crosshairRotationSpeed = PHVisualStyle.CrosshairRotationSpeed,
 		watermarkText = _G.__PHWatermarkBox.Text,
 		effectEnabled = _G.__PHEffectState and _G.__PHEffectState.Enabled == true,
 		effectRandom = _G.__PHEffectState and _G.__PHEffectState.Random == true,
@@ -6879,6 +6876,9 @@ Config_gatherSettingsData = function()
 		gunColorEnabled = _G.__PHGunColorState and _G.__PHGunColorState.Enabled == true,
 		gunColor = _G.__PHGunColorState and Config_colorToHex(_G.__PHGunColorState.Color) or "#AA00FF",
 		gunColorSoundId = (_G.__PHGunColorState and _G.__PHGunColorState.SoundId) or "rbxassetid://3442683707",
+        gunColorWidth = (_G.__PHGunColorState and _G.__PHGunColorState.Width) or 0.2,
+        gunColorLifetime = (_G.__PHGunColorState and _G.__PHGunColorState.Lifetime) or 1.5,
+        gunColorGlow = _G.__PHGunColorState and _G.__PHGunColorState.Glow == true,
 
 		-- Abilities
 		knifeSpeedEnabled = KnifeSettings.Enabled,
@@ -6995,6 +6995,9 @@ Config_loadConfigByName = function(Config_cName)
 				if Config_data.aimbot ~= nil and CheckboxSetters["Aimbot"] then CheckboxSetters["Aimbot"](Config_data.aimbot, true) end
 				if Config_data.wallCheck ~= nil and CheckboxSetters["WallCheck"] then CheckboxSetters["WallCheck"](Config_data.wallCheck, true) end
 				if Config_data.fovRadius and SliderSetters["FOVRadius"] then SliderSetters["FOVRadius"](Config_data.fovRadius) end
+                if Config_data.fovThickness and SliderSetters["FOVThickness"] then SliderSetters["FOVThickness"](Config_data.fovThickness) end
+                if Config_data.fovOpacity and SliderSetters["FOVOpacity"] then SliderSetters["FOVOpacity"](Config_data.fovOpacity) end
+                if Config_data.fovAnimSpeed and SliderSetters["FOVAnimSpeed"] then SliderSetters["FOVAnimSpeed"](Config_data.fovAnimSpeed) end
 				if Config_data.fovColor then fovColorBtn.BackgroundColor3 = Config_hexToColor(Config_data.fovColor); FOV_Color = fovColorBtn.BackgroundColor3 end
                 if Config_data.fovColor2 then ColorBtnSetters["FOVColor2"].BackgroundColor3 = Config_hexToColor(Config_data.fovColor2); PHVisualStyle.FOVColor2 = ColorBtnSetters["FOVColor2"].BackgroundColor3 end
                 if Config_data.fovColor3 then ColorBtnSetters["FOVColor3"].BackgroundColor3 = Config_hexToColor(Config_data.fovColor3); PHVisualStyle.FOVColor3 = ColorBtnSetters["FOVColor3"].BackgroundColor3 end
@@ -7075,6 +7078,9 @@ Config_loadConfigByName = function(Config_cName)
 					customCrosshairColor = Config_hexToColor(Config_data.customCrosshairColor)
 					_G.__PHCrosshairColorBtn.BackgroundColor3 = customCrosshairColor
 				end
+                if Config_data.crosshairSize and SliderSetters["CrosshairSize"] then SliderSetters["CrosshairSize"](Config_data.crosshairSize) end
+                if Config_data.crosshairGap and SliderSetters["CrosshairGap"] then SliderSetters["CrosshairGap"](Config_data.crosshairGap) end
+                if Config_data.crosshairRotationSpeed ~= nil and SliderSetters["CrosshairRotation"] then SliderSetters["CrosshairRotation"](Config_data.crosshairRotationSpeed) end
 				if Config_data.watermarkText then
 					-- Updating the textbox fires GetPropertyChangedSignal("Text"),
 					-- which already syncs CursorText when the GUI thread has access.
@@ -7106,6 +7112,11 @@ Config_loadConfigByName = function(Config_cName)
 					_G.__PHGunColorState.SoundId = Config_data.gunColorSoundId
 					if _G.__PHGunColorUI and _G.__PHGunColorUI.soundBox then _G.__PHGunColorUI.soundBox.Text = Config_data.gunColorSoundId end
 				end
+                if _G.__PHGunColorState then
+                    if Config_data.gunColorWidth and SliderSetters["GUNTracerWidth"] then SliderSetters["GUNTracerWidth"](Config_data.gunColorWidth) end
+                    if Config_data.gunColorLifetime and SliderSetters["GUNTracerLifetime"] then SliderSetters["GUNTracerLifetime"](Config_data.gunColorLifetime) end
+                    if Config_data.gunColorGlow ~= nil and CheckboxSetters["GUNTracerGlow"] then CheckboxSetters["GUNTracerGlow"](Config_data.gunColorGlow, true) end
+                end
 				if Config_data.gunColorEnabled ~= nil and CheckboxSetters["GUNcolor"] then CheckboxSetters["GUNcolor"](Config_data.gunColorEnabled, true) end
 
 				-- Abilities
