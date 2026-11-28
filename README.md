@@ -15,11 +15,26 @@ local Workspace = game:GetService("Workspace")
 local CollectionService = game:GetService("CollectionService")
 local Stats = game:GetService("Stats")
 
+-- Executorによっては注入直後にLocalPlayer/PlayerGuiがまだ生成されていない。
+-- 取得前にnil参照で停止しないよう、準備完了まで待機する。
 local LocalPlayer = Players.LocalPlayer
-local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+while not LocalPlayer do
+    task.wait(0.1)
+    LocalPlayer = Players.LocalPlayer
+end
 
-if playerGui:FindFirstChild("PraveteHubGUI") then
-	playerGui.PraveteHubGUI:Destroy()
+local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+while not playerGui do
+    playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+    if not playerGui then task.wait(0.1) end
+end
+
+-- 前回実行分をPlayerGui/CoreGuiの両方から除去する。
+for _, guiRoot in ipairs({playerGui, game:GetService("CoreGui")}) do
+    pcall(function()
+        local oldGui = guiRoot:FindFirstChild("PraveteHubGUI")
+        if oldGui then oldGui:Destroy() end
+    end)
 end
 -- ==========================================================
 -- PrivateHub Teleport Auto Reload (重複起動防止版)
@@ -467,15 +482,48 @@ local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "PraveteHubGUI"
 screenGui.ResetOnSpawn = false
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-screenGui.Parent = playerGui
+screenGui.DisplayOrder = 10000
+screenGui.IgnoreGuiInset = true
+screenGui.Enabled = true
+-- CoreGuiを利用できるExecutorではそちらを優先し、拒否された場合はPlayerGuiへ配置。
+local screenGuiParented = pcall(function()
+    screenGui.Parent = game:GetService("CoreGui")
+end)
+if not screenGuiParented or not screenGui.Parent then
+    local playerParented = pcall(function()
+        screenGui.Parent = playerGui
+    end)
+    if not playerParented or not screenGui.Parent then
+        warn("[Private Hub] GUIをCoreGui/PlayerGuiへ配置できませんでした。ExecutorのGUI権限を確認してください。")
+        error("Private Hub: ScreenGui parent failed")
+    end
+end
 
--- カーソル用の独立したScreenGui
-local CursorGui = Instance.new("ScreenGui", game:GetService("CoreGui"))
+-- カーソル用GUI。モバイルExecutorではCoreGuiへの親設定が拒否される
+-- 場合があるため、失敗時はPlayerGuiへフォールバックして本体の起動を止めない。
+local CursorGui = Instance.new("ScreenGui")
 CursorGui.Name = "MVSD_Perfect_Crosshair_v3"
 CursorGui.DisplayOrder = 99999
 CursorGui.ResetOnSpawn = false
-CursorGui.IgnoreGuiInset = true 
+CursorGui.IgnoreGuiInset = true
 CursorGui.Enabled = false
+local cursorParented = pcall(function()
+    CursorGui.Parent = game:GetService("CoreGui")
+end)
+if not cursorParented then
+    pcall(function()
+        CursorGui.Parent = playerGui
+    end)
+end
+if not CursorGui.Parent then
+    CursorGui:Destroy()
+    CursorGui = Instance.new("ScreenGui")
+    CursorGui.Name = "MVSD_Perfect_Crosshair_v3"
+    CursorGui.ResetOnSpawn = false
+    CursorGui.IgnoreGuiInset = true
+    CursorGui.Enabled = false
+    CursorGui.Parent = playerGui
+end
 
 local CursorCenter = Instance.new("Frame", CursorGui)
 CursorCenter.Size = UDim2.new(0, 0, 0, 0)
@@ -686,6 +734,49 @@ mainFrame.BorderSizePixel = 0
 mainFrame.Visible = false
 mainFrame.Parent = screenGui
 
+-- Mobile uses a compact landscape layout; UIScale keeps the full interface inside the viewport.
+_G.__PHGuiScaleValue = math.clamp(tonumber(_G.__PHGuiScaleValue) or 1, 0.70, 1.15)
+local mainUIScale = Instance.new("UIScale")
+mainUIScale.Name = "ResponsiveUIScale"
+mainUIScale.Scale = 1
+mainUIScale.Parent = mainFrame
+_G.__PHMainUIScale = mainUIScale
+
+local function isPrivateHubMobile()
+    return UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+end
+
+local function getPrivateHubBaseSize()
+    if isPrivateHubMobile() then
+        return 760, 520
+    end
+    return 580, 800
+end
+
+_G.__PHApplyGuiLayout = function()
+    local camera = Workspace.CurrentCamera
+    local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
+    local baseW, baseH = getPrivateHubBaseSize()
+    local fitX = (viewport.X * (isPrivateHubMobile() and 0.94 or 0.92)) / baseW
+    local fitY = (viewport.Y * (isPrivateHubMobile() and 0.84 or 0.90)) / baseH
+    local fitScale = math.max(0.35, math.min(1, fitX, fitY))
+    mainFrame.Size = UDim2.fromOffset(baseW, baseH)
+    mainUIScale.Scale = fitScale * _G.__PHGuiScaleValue
+end
+
+_G.__PHApplyGuiLayout()
+if Workspace.CurrentCamera then
+    Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(_G.__PHApplyGuiLayout)
+end
+Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+    task.defer(function()
+        if Workspace.CurrentCamera then
+            Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(_G.__PHApplyGuiLayout)
+        end
+        if _G.__PHApplyGuiLayout then _G.__PHApplyGuiLayout() end
+    end)
+end)
+
 local mainFrameStroke = addStroke(mainFrame, Color3.fromRGB(210, 140, 180), 0.5, 1)
 Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 6)
 
@@ -702,8 +793,10 @@ local function setGuiOpen(open)
 		outerGlow.Visible = false
 		outerBorder.Visible = false
 		mainFrame.Visible = true
-		mainFrame.Size = UDim2.new(0, 520, 0, 720)
-		mainFrame.BackgroundTransparency = 1
+        if _G.__PHApplyGuiLayout then _G.__PHApplyGuiLayout() end
+        local baseW, baseH = getPrivateHubBaseSize()
+        mainFrame.Size = UDim2.fromOffset(baseW * 0.90, baseH * 0.90)
+        mainFrame.BackgroundTransparency = 1
 
 		for _, child in ipairs(mainFrame:GetChildren()) do
 			if child:IsA("GuiObject") and child.Name ~= "PaletteFrame" then
@@ -711,10 +804,11 @@ local function setGuiOpen(open)
 			end
 		end
 
-		local tween = TweenService:Create(mainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-			Size = UDim2.new(0, 580, 0, 800),
-			BackgroundTransparency = 0
-		})
+        local baseW, baseH = getPrivateHubBaseSize()
+        local tween = TweenService:Create(mainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+            Size = UDim2.fromOffset(baseW, baseH),
+            BackgroundTransparency = 0
+        })
 		tween:Play()
 		tween.Completed:Connect(function()
 			for _, child in ipairs(mainFrame:GetChildren()) do
@@ -724,28 +818,46 @@ local function setGuiOpen(open)
 			end
 		end)
 	else
-		local tween = TweenService:Create(mainFrame, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-			Size = UDim2.new(0, 520, 0, 720),
-			BackgroundTransparency = 1
-		})
+        local baseW, baseH = getPrivateHubBaseSize()
+        local tween = TweenService:Create(mainFrame, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+            Size = UDim2.fromOffset(baseW * 0.90, baseH * 0.90),
+            BackgroundTransparency = 1
+        })
 		tween:Play()
 		tween.Completed:Connect(function()
 			outerGlow.Visible = false
 			outerBorder.Visible = false
 			mainFrame.Visible = false
-			mainFrame.Size = UDim2.new(0, 580, 0, 800)
-			mainFrame.BackgroundTransparency = 0
+            if _G.__PHApplyGuiLayout then _G.__PHApplyGuiLayout() end
+            mainFrame.BackgroundTransparency = 0
 		end)
 	end
 end
 
 local toggleIconBtn = Instance.new("ImageButton")
 toggleIconBtn.Name = "ToggleIconButton"
-toggleIconBtn.Size = UDim2.new(0, 45, 0, 45)
-toggleIconBtn.Position = UDim2.new(0, 20, 0.5, -22.5)
+toggleIconBtn.Size = UserInputService.TouchEnabled and UDim2.fromOffset(68, 68) or UDim2.fromOffset(58, 58)
+toggleIconBtn.Position = UserInputService.TouchEnabled and UDim2.new(0, 12, 0.5, -34) or UDim2.new(0, 14, 0.5, -29)
+toggleIconBtn.AnchorPoint = Vector2.new(0, 0)
+toggleIconBtn.Active = true
+toggleIconBtn.AutoButtonColor = true
+toggleIconBtn.Selectable = true
+toggleIconBtn.ZIndex = 10000
 toggleIconBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 23)
 toggleIconBtn.BorderSizePixel = 0
 toggleIconBtn.Parent = screenGui
+local toggleFallbackText = Instance.new("TextLabel")
+toggleFallbackText.Name = "FallbackText"
+toggleFallbackText.BackgroundTransparency = 1
+toggleFallbackText.Size = UDim2.fromScale(1, 1)
+toggleFallbackText.Position = UDim2.fromScale(0, 0)
+toggleFallbackText.Text = "PH"
+toggleFallbackText.Font = Enum.Font.GothamBold
+toggleFallbackText.TextSize = 17
+toggleFallbackText.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleFallbackText.TextStrokeTransparency = 0.5
+toggleFallbackText.ZIndex = 10001
+toggleFallbackText.Parent = toggleIconBtn
 Instance.new("UICorner", toggleIconBtn).CornerRadius = UDim.new(0, 8)
 addStroke(toggleIconBtn, Color3.fromRGB(80, 80, 85), 0, 1)
 
@@ -796,7 +908,7 @@ UserInputService.InputChanged:Connect(function(input)
 	end
 end)
 
-toggleIconBtn.MouseButton1Click:Connect(function()
+toggleIconBtn.Activated:Connect(function()
 	if not iconDragging then
 		setGuiOpen(not isGuiOpen)
 	end
@@ -5422,8 +5534,9 @@ _G.__PHGunColorTracer = function(startPos, endPos)
 end
 
 -- 既存の Aimbot 用 __namecall hook と競合しないよう、GUNcolor は一度だけ登録。
-if not _G.__PHGunColorHookInstalled then
-    _G.__PHGunColorHookInstalled = true
+if not _G.__PHGunColorHookInstalled
+    and type(hookmetamethod) == "function"
+    and type(getnamecallmethod) == "function" then
     _G.__PHGunColorOldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
         local method = getnamecallmethod()
         local st = _G.__PHGunColorState
@@ -5449,8 +5562,13 @@ if not _G.__PHGunColorHookInstalled then
             end
         end
 
-        return _G.__PHGunColorOldNamecall(self, ...)
+        if type(_G.__PHGunColorOldNamecall) == "function" then
+            return _G.__PHGunColorOldNamecall(self, ...)
+        end
     end)
+    _G.__PHGunColorHookInstalled = true
+else
+    warn("[Private Hub] hookmetamethod unavailable; GUN color hook is disabled.")
 end
 
 _G.__PHGunColorShootRemote = _G.__PHGunColorShootRemote or (ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("ShootGun"))
@@ -5754,6 +5872,7 @@ RunService.RenderStepped:Connect(function()
 end)
 
 _G.__PHHooked = nil
+if type(hookmetamethod) == "function" and type(getnamecallmethod) == "function" then
 _G.__PHHooked = hookmetamethod(game, "__namecall", function(self, ...)
 	local args = {...}
 	local method = getnamecallmethod()
@@ -5766,8 +5885,13 @@ _G.__PHHooked = hookmetamethod(game, "__namecall", function(self, ...)
 			return self.FireServer(self, pos, pos, root, pos)
 		end
 	end
-	return _G.__PHHooked(self, ...)
+	if type(_G.__PHHooked) == "function" then
+		return _G.__PHHooked(self, ...)
+	end
 end)
+else
+	warn("[Private Hub] hookmetamethod unavailable; hook-based aim features are disabled.")
+end
 
 UserInputService.InputBegan:Connect(function(input, processed)
 	if not processed and SilentAimEnabled and not AimbotEnabled and input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -6402,7 +6526,7 @@ Instance.new("UICorner", btnRefresh).CornerRadius = UDim.new(0, 4)
 addStroke(btnRefresh, Color3.fromRGB(40, 40, 45), 0, 1)
 
 settingGuiFrame = Instance.new("Frame")
-settingGuiFrame.Size = UDim2.new(0.92, 0, 0, 390)
+settingGuiFrame.Size = UDim2.new(0.92, 0, 0, 435)
 settingGuiFrame.Position = UDim2.new(0.04, 0, 0, 340)
 settingGuiFrame.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 settingGuiFrame.BorderSizePixel = 0
@@ -6506,6 +6630,21 @@ _G.__PHStartupGuiButton.MouseButton1Click:Connect(function()
     _G.__PHStartupGuiButton.Text = _G.__PrivateHubStartupGuiState.Enabled and "ON" or "OFF"
     showNotification("Show GUI on startup: " .. _G.__PHStartupGuiButton.Text)
 end)
+
+-- GUI全体の大きさを調整。設定値はCONFIGに保存される。
+SliderSetters["GuiScale"] = createSliderRow(
+    settingGuiFrame,
+    "GUI Size",
+    0.70,
+    1.15,
+    _G.__PHGuiScaleValue or 1,
+    306,
+    function(value)
+        _G.__PHGuiScaleValue = math.clamp(tonumber(value) or 1, 0.70, 1.15)
+        if _G.__PHApplyGuiLayout then _G.__PHApplyGuiLayout() end
+    end
+)
+settingsScroll.CanvasSize = UDim2.new(0, 0, 0, 800)
 
 applyThemeColors = function()
 	local mainCol = _G.__PHMainColorBtn.BackgroundColor3
@@ -6778,6 +6917,7 @@ Config_gatherSettingsData = function()
 		textColor = Config_colorToHex(_G.__PHTextColorBtn.BackgroundColor3),
 		toggleKey = _G.__PrivateHubToggleKeyBtn.Text,
         showGuiOnStartup = _G.__PrivateHubStartupGuiState.Enabled == true,
+        guiScale = _G.__PHGuiScaleValue or 1,
 		startupSound = _G.__PHStartupSoundBox.Text,
 		notificationSound = _G.__PHNotificationSoundBox.Text,
 		walkSpeedEnabled = ModSpeedEnabled, -- ★ Config保存用
@@ -6962,6 +7102,11 @@ Config_loadConfigByName = function(Config_cName)
                 if Config_data.showGuiOnStartup ~= nil then
                     _G.__PrivateHubStartupGuiState.Enabled = Config_data.showGuiOnStartup == true
                     if _G.__PHStartupGuiButton then _G.__PHStartupGuiButton.Text = _G.__PrivateHubStartupGuiState.Enabled and "ON" or "OFF" end
+                end
+                if Config_data.guiScale ~= nil then
+                    _G.__PHGuiScaleValue = math.clamp(tonumber(Config_data.guiScale) or 1, 0.70, 1.15)
+                    if SliderSetters["GuiScale"] then SliderSetters["GuiScale"](_G.__PHGuiScaleValue) end
+                    if _G.__PHApplyGuiLayout then _G.__PHApplyGuiLayout() end
                 end
 				if Config_data.startupSound then _G.__PHStartupSoundBox.Text = Config_data.startupSound end
 				if Config_data.notificationSound then _G.__PHNotificationSoundBox.Text = Config_data.notificationSound end
@@ -7231,7 +7376,16 @@ if readfile and isfile and isfile(Config_lastConfigPath) then
 end
 
 end
-setGuiOpen(_G.__PrivateHubStartupGuiState.Enabled == true)
+screenGui.Enabled = true
+if _G.__PrivateHubStartupGuiState.Enabled == true then
+    setGuiOpen(true)
+else
+    mainFrame.Visible = false
+end
+if isPrivateHubMobile() then
+    toggleIconBtn.Size = UDim2.fromOffset(62, 62)
+    toggleIconBtn.Position = UDim2.new(0, 12, 0.5, -31)
+end
 playSound(tonumber(_G.__PHStartupSoundBox.Text) or 0)
 
 _G.__PrivateHubGlitchTime = os.clock()
